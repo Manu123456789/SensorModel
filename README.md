@@ -15,13 +15,7 @@ A conventional white-noise implementation can reproduce the total noise magnitud
 The developed model therefore separates the measured gyro error into three components:
 
 $$
-x_{\text{error}}[k]
-=
-b
-+
-x_{\text{tones}}[k]
-+
-x_{\text{AR}}[k]
+x_{\text{error}}[k] = b + x_{\text{tones}}[k] + x_{\text{AR}}[k]
 $$
 
 where:
@@ -34,7 +28,7 @@ The purpose of the AR model is **not** to reproduce the exact measured time trac
 
 ---
 
-# 2. High-Level Methodology
+## 2. High-Level Methodology
 
 ```mermaid
 flowchart TD
@@ -82,9 +76,9 @@ The fundamental idea is:
 
 ---
 
-# 3. Presentation-Level Summary
+## 3. Presentation-Level Summary
 
-## Slide 1 — Why a Test-Derived Colored-Noise Model?
+### Slide 1 — Why a Test-Derived Colored-Noise Model?
 
 - Existing sensor model approximates gyro noise using **RMS-scaled white Gaussian noise**
 - Test data contains **tones and correlated frequency-dependent noise**
@@ -102,22 +96,12 @@ The fundamental idea is:
   - Allan deviation
   - AR innovation whiteness
 
----
-
-## Slide 2 — AR Identification Using Yule–Walker
+### Slide 2 — AR Identification Using Yule–Walker
 
 The measured residual is modeled as:
 
 $$
-x[k]
-+
-a_1x[k-1]
-+
-a_2x[k-2]
-+\cdots+
-a_px[k-p]
-=
-e[k]
+x[k] + a_1 x[k-1] + a_2 x[k-2] + \cdots + a_p x[k-p] = e[k]
 $$
 
 where:
@@ -139,10 +123,7 @@ bNoise = sqrt(noiseVar);
 The resulting stochastic filter is:
 
 $$
-H(z)
-=
-\frac{\sqrt{\sigma_e^2}}
-{1+a_1z^{-1}+a_2z^{-2}+\cdots+a_pz^{-p}}
+H(z) = \frac{\sqrt{\sigma_e^2}}{1 + a_1 z^{-1} + a_2 z^{-2} + \cdots + a_p z^{-p}}
 $$
 
 where:
@@ -151,9 +132,7 @@ $$
 \sigma_e^2 = \texttt{noiseVar}
 $$
 
----
-
-## Slide 3 — Noise Generation and Simulation Implementation
+### Slide 3 — Noise Generation and Simulation Implementation
 
 The identified AR model is driven by unit Gaussian noise:
 
@@ -164,19 +143,13 @@ $$
 with:
 
 $$
-e[k]
-=
-\sqrt{\sigma_e^2}\,w[k]
+e[k] = \sqrt{\sigma_e^2}\, w[k]
 $$
 
 The recursive model is therefore:
 
 $$
-x[k]
-=
-\sqrt{\sigma_e^2}\,w[k]
--
-\sum_{i=1}^{p}a_i x[k-i]
+x[k] = \sqrt{\sigma_e^2}\, w[k] - \sum_{i=1}^{p} a_i x[k-i]
 $$
 
 The simulation must therefore:
@@ -192,26 +165,17 @@ The simulation must therefore:
 The final model is:
 
 $$
-x_{\text{model}}[k]
-=
-b
-+
-\sum_{i=1}^{N_t}
-A_i\sin(2\pi f_i t_k+\phi_i)
-+
-x_{\text{AR}}[k]
+x_{\text{model}}[k] = b + \sum_{i=1}^{N_t} A_i \sin(2\pi f_i t_k + \phi_i) + x_{\text{AR}}[k]
 $$
 
 ---
 
-# 4. Why RMS White Noise Is Insufficient
+## 4. Why RMS White Noise Is Insufficient
 
 RMS describes the total average noise magnitude:
 
 $$
-x_{\text{RMS}}
-=
-\sqrt{E[x^2]}
+x_{\text{RMS}} = \sqrt{E[x^2]}
 $$
 
 However, RMS contains no information about **where that noise energy occurs in frequency**.
@@ -219,9 +183,7 @@ However, RMS contains no information about **where that noise energy occurs in f
 Two signals can have:
 
 $$
-x_{\text{RMS},1}
-=
-x_{\text{RMS},2}
+x_{\text{RMS},1} = x_{\text{RMS},2}
 $$
 
 while having completely different PSDs.
@@ -229,9 +191,7 @@ while having completely different PSDs.
 For ideal discrete white noise:
 
 $$
-R_x[m] \approx 0,
-\qquad
-m \neq 0
+R_x[m] \approx 0, \qquad m \neq 0
 $$
 
 and the PSD is approximately flat.
@@ -244,22 +204,18 @@ A real sensor may instead exhibit:
 - Colored broadband noise
 - Significant nonzero correlation between consecutive samples
 
-Therefore:
-
 > **RMS answers "how much noise?" while PSD and autocorrelation describe "how does the noise behave?"**
 
 ---
 
-# 5. Why Autocorrelation Matters
+## 5. Why Autocorrelation Matters
 
 Autocorrelation measures the relationship between a signal and delayed versions of itself.
 
 For a stationary sequence:
 
 $$
-R_x[m]
-=
-E[x[k]x[k-m]]
+R_x[m] = E[x[k]\,x[k-m]]
 $$
 
 where $m$ is the lag.
@@ -267,11 +223,7 @@ where $m$ is the lag.
 For ideal white noise:
 
 $$
-R_x[m]
-=
-0
-\qquad
-m \neq 0
+R_x[m] = 0 \qquad m \neq 0
 $$
 
 because different samples are uncorrelated.
@@ -279,41 +231,29 @@ because different samples are uncorrelated.
 For colored gyro noise:
 
 $$
-R_x[m]
-\neq
-0
+R_x[m] \neq 0
 $$
 
 for some nonzero lags.
 
-This means that the current error contains statistical information about previous errors.
-
-That temporal memory is exactly what the AR model represents.
+This means that the current error contains statistical information about previous errors. That temporal memory is exactly what the AR model represents.
 
 PSD and autocorrelation are closely related through the Fourier transform:
 
 $$
-S_x(e^{j\omega})
-=
-\mathcal{F}\{R_x[m]\}
+S_x(e^{j\omega}) = \mathcal{F}\{R_x[m]\}
 $$
 
 Therefore, fitting the temporal correlation of the measured process also determines its spectral structure.
 
 ---
 
-# 6. Why Use Yule–Walker?
+## 6. Why Use Yule–Walker?
 
 The AR model assumes:
 
 $$
-x[k]
-+
-a_1x[k-1]
-+\cdots+
-a_px[k-p]
-=
-e[k]
+x[k] + a_1 x[k-1] + \cdots + a_p x[k-p] = e[k]
 $$
 
 The innovation $e[k]$ represents new information that cannot be predicted from the previous samples.
@@ -321,84 +261,64 @@ The innovation $e[k]$ represents new information that cannot be predicted from t
 For positive lag $m$, multiply the equation by $x[k-m]$ and take the expectation:
 
 $$
-E[x[k]x[k-m]]
-+
-a_1E[x[k-1]x[k-m]]
-+\cdots
-+
-a_pE[x[k-p]x[k-m]]
-=
-E[e[k]x[k-m]]
+E[x[k]x[k-m]] + a_1 E[x[k-1]x[k-m]] + \cdots + a_p E[x[k-p]x[k-m]] = E[e[k]x[k-m]]
 $$
 
 Because the new innovation is uncorrelated with previous samples:
 
 $$
-E[e[k]x[k-m]]
-=
-0
+E[e[k]x[k-m]] = 0
 $$
 
 Therefore:
 
 $$
-r[m]
-+
-a_1r[m-1]
-+\cdots+
-a_pr[m-p]
-=
-0
+r[m] + a_1 r[m-1] + \cdots + a_p r[m-p] = 0
 $$
 
 where:
 
 $$
-r[m]
-=
-E[x[k]x[k-m]]
+r[m] = E[x[k]x[k-m]]
 $$
 
 is the autocorrelation.
 
-For an AR($p$) process, the equations can be written as:
+For an AR($p$) process, the equations can be written in matrix form as a Toeplitz autocorrelation matrix $\mathbf{R}$ times the coefficient vector $\mathbf{a}$, equal to the negative of the lagged autocorrelation vector:
 
 $$
-\begin{bmatrix}
-r[0] & r[1] & \cdots & r[p-1] \\
-r[1] & r[0] & \cdots & r[p-2] \\
-\vdots & \vdots & \ddots & \vdots \\
-r[p-1] & r[p-2] & \cdots & r[0]
-\end{bmatrix}
-\begin{bmatrix}
-a_1 \\
-a_2 \\
-\vdots \\
-a_p
-\end{bmatrix}
-=
--
-\begin{bmatrix}
-r[1] \\
-r[2] \\
-\vdots \\
-r[p]
-\end{bmatrix}
+\mathbf{R}\,\mathbf{a} = -\mathbf{r}
 $$
 
-These are the **Yule–Walker equations**.
+where $\mathbf{R}$ is the $p \times p$ symmetric Toeplitz matrix of autocorrelation lags, $\mathbf{a} = [a_1, a_2, \ldots, a_p]^T$, and $\mathbf{r} = [r[1], r[2], \ldots, r[p]]^T$:
+
+```text
+        r[0]     r[1]     ...  r[p-1]        a_1        r[1]
+        r[1]     r[0]     ...  r[p-2]        a_2        r[2]
+R   =   r[2]     r[1]     ...  r[p-3]   a =  a_3    r = r[3]
+         :        :        :      :           :          :
+        r[p-1]   r[p-2]   ...  r[0]          a_p        r[p]
+
+Yule-Walker system:   R * a = -r
+```
+
+Each entry $r[m] = E[x[k]\,x[k-m]]$, and $\mathbf{R}$ is symmetric because $r[m] = r[-m]$ for a real-valued stationary process. Solving this linear system for $\mathbf{a}$ gives the AR coefficients. These are the **Yule–Walker equations**.
 
 Conceptually:
 
 ```text
 Measured residual
-        ↓
+        |
+        v
 Measured autocorrelation
-        ↓
+        |
+        v
 Yule-Walker equations
-        ↓
+        |
+        v
 AR coefficients
-        ↓
+        |
+        v
 Recursive stochastic filter
 ```
 
@@ -406,7 +326,7 @@ This makes Yule–Walker particularly appropriate because the model is identifie
 
 ---
 
-# 7. Why Use an AR Model?
+## 7. Why Use an AR Model?
 
 An autoregressive model is useful because it provides a compact, recursive representation of correlated stochastic noise.
 
@@ -417,13 +337,11 @@ Instead of storing a complete prerecorded noise sequence, the simulation only ne
 - Previous AR output values
 - A Gaussian random-number generator
 
-The model then generates an arbitrarily long stochastic sequence in real time.
-
-The AR structure is also computationally convenient because only previous sequence values are required.
+The model then generates an arbitrarily long stochastic sequence in real time. The AR structure is also computationally convenient because only previous sequence values are required.
 
 ---
 
-# 8. What Does `noiseVar` Mean?
+## 8. What Does `noiseVar` Mean?
 
 MATLAB returns:
 
@@ -436,9 +354,7 @@ MATLAB returns:
 `noiseVar` is the estimated variance of the innovation sequence:
 
 $$
-\sigma_e^2
-=
-\texttt{noiseVar}
+\sigma_e^2 = \texttt{noiseVar}
 $$
 
 Therefore:
@@ -450,35 +366,25 @@ bNoise = sqrt(noiseVar);
 and:
 
 $$
-b_{\text{Noise}}
-=
-\sqrt{\sigma_e^2}
+b_{\text{Noise}} = \sqrt{\sigma_e^2}
 $$
 
 If the random-number generator produces:
 
 $$
-w[k]
-\sim
-\mathcal{N}(0,1)
+w[k] \sim \mathcal{N}(0,1)
 $$
 
 then:
 
 $$
-e[k]
-=
-b_{\text{Noise}}w[k]
+e[k] = b_{\text{Noise}}\, w[k]
 $$
 
 has:
 
 $$
-\operatorname{Var}(e)
-=
-b_{\text{Noise}}^2
-=
-\sigma_e^2
+\operatorname{Var}(e) = b_{\text{Noise}}^2 = \sigma_e^2
 $$
 
 The roles are therefore:
@@ -491,20 +397,12 @@ The roles are therefore:
 
 ---
 
-# 9. What the AR Filter Is Actually Doing
+## 9. What the AR Filter Is Actually Doing
 
 The AR recurrence is:
 
 $$
-x[k]
-=
-b_{\text{Noise}}w[k]
--
-a_1x[k-1]
--
-a_2x[k-2]
--\cdots-
-a_px[k-p]
+x[k] = b_{\text{Noise}}\, w[k] - a_1 x[k-1] - a_2 x[k-2] - \cdots - a_p x[k-p]
 $$
 
 Every new sample contains two components:
@@ -512,118 +410,77 @@ Every new sample contains two components:
 1. A new unpredictable Gaussian innovation
 2. A weighted combination of previous AR outputs
 
-Without the second term, the result would simply be white noise.
-
-The previous-output terms create **memory**.
-
-That memory causes correlation between samples.
-
-That correlation produces a colored frequency spectrum.
-
-Therefore:
+Without the second term, the result would simply be white noise. The previous-output terms create **memory**. That memory causes correlation between samples, which produces a colored frequency spectrum.
 
 > **The RNG creates randomness; the AR recurrence gives that randomness the measured temporal structure.**
 
 ---
 
-# 10. Why Previous History Must Be Stored
+## 10. Why Previous History Must Be Stored
 
 For an AR($p$) process, calculation of the current value requires the previous $p$ outputs.
 
 For example, an AR(3) process is:
 
 $$
-x[k]
-=
-bw[k]
--a_1x[k-1]
--a_2x[k-2]
--a_3x[k-3]
+x[k] = b\, w[k] - a_1 x[k-1] - a_2 x[k-2] - a_3 x[k-3]
 $$
 
-The simulation cannot evaluate $x[k]$ without knowing:
-
-$$
-x[k-1],\quad x[k-2],\quad x[k-3]
-$$
-
-The previous values must therefore remain persistent between simulation calls.
+The simulation cannot evaluate $x[k]$ without knowing $x[k-1]$, $x[k-2]$, $x[k-3]$. The previous values must therefore remain persistent between simulation calls.
 
 Conceptually:
 
 ```text
 Current history:
-
-x[k-1]
-x[k-2]
-x[k-3]
-
-        ↓
-
-Calculate x[k]
-
-        ↓
-
+    x[k-1]
+    x[k-2]
+    x[k-3]
+        |
+        v
+    Calculate x[k]
+        |
+        v
 Shift history:
-
-x[k]   -> newest
-x[k-1]
-x[k-2]
+    x[k]    -> newest
+    x[k-1]
+    x[k-2]
 ```
 
-This stored history is not merely a programming requirement.
-
-It is the mechanism by which the AR model maintains temporal correlation.
+This stored history is not merely a programming requirement. It is the mechanism by which the AR model maintains temporal correlation.
 
 ---
 
-# 11. Why Burn-In Is Necessary
+## 11. Why Burn-In Is Necessary
 
-At the beginning of a simulation, the AR filter usually has no real history.
-
-A simple implementation initializes:
+At the beginning of a simulation, the AR filter usually has no real history. A simple implementation initializes:
 
 $$
-x[-1]
-=
-x[-2]
-=
-\cdots
-=
-x[-p]
-=
-0
+x[-1] = x[-2] = \cdots = x[-p] = 0
 $$
 
-However, zero history is not representative of a sensor that has already been operating in its normal stochastic state.
-
-The first generated outputs therefore contain an artificial **initial-condition transient**.
+However, zero history is not representative of a sensor that has already been operating in its normal stochastic state. The first generated outputs therefore contain an artificial **initial-condition transient**.
 
 Burn-in means:
 
 ```text
 Initialize filter
-      ↓
+        |
+        v
 Generate AR noise
-      ↓
+        |
+        v
 Allow initial-condition transient to decay
-      ↓
+        |
+        v
 Discard these early samples
-      ↓
+        |
+        v
 Begin using model output
 ```
 
 After sufficient time, the influence of the artificial initialization becomes negligible and the AR process approaches its normal statistical behavior.
 
-A more rigorous way to understand burn-in is through the dominant AR pole.
-
-If the largest pole magnitude is:
-
-$$
-r_{\max} < 1
-$$
-
-then an initial-condition component approximately decays as:
+A more rigorous way to understand burn-in is through the dominant AR pole. If the largest pole magnitude is $r_{\max} < 1$, then an initial-condition component approximately decays as:
 
 $$
 r_{\max}^{N}
@@ -632,117 +489,70 @@ $$
 For a desired residual startup influence $\epsilon$:
 
 $$
-r_{\max}^{N_{\text{burn}}}
-<
-\epsilon
+r_{\max}^{N_{\text{burn}}} < \epsilon
 $$
 
 which gives:
 
 $$
-N_{\text{burn}}
->
-\frac{\ln(\epsilon)}
-{\ln(r_{\max})}
+N_{\text{burn}} > \frac{\ln(\epsilon)}{\ln(r_{\max})}
 $$
 
 Therefore, filters with poles close to the unit circle require longer burn-in periods.
 
 ---
 
-# 12. Why the Process Becomes Colored
+## 12. Why the Process Becomes Colored
 
 The AR transfer function is:
 
 $$
-H(z)
-=
-\frac{b}
-{1+a_1z^{-1}+a_2z^{-2}+\cdots+a_pz^{-p}}
+H(z) = \frac{b}{1 + a_1 z^{-1} + a_2 z^{-2} + \cdots + a_p z^{-p}}
 $$
 
 For a white-noise input having flat spectral density $S_w$:
 
 $$
-S_x(e^{j\omega})
-=
-|H(e^{j\omega})|^2S_w
+S_x(e^{j\omega}) = |H(e^{j\omega})|^2 S_w
 $$
 
 Because $S_w$ is approximately constant:
 
 $$
-S_x(e^{j\omega})
-\propto
-|H(e^{j\omega})|^2
+S_x(e^{j\omega}) \propto |H(e^{j\omega})|^2
 $$
 
-Therefore, the AR denominator shapes the originally flat Gaussian excitation into a frequency-dependent process.
-
-That is what produces **colored noise**.
+Therefore, the AR denominator shapes the originally flat Gaussian excitation into a frequency-dependent process. That is what produces **colored noise**.
 
 ---
 
-# 13. Where the Tones Come From
+## 13. Where the Tones Come From
 
-The model used here separates deterministic tones from the stochastic AR residual.
-
-The measured signal is treated conceptually as:
+The model used here separates deterministic tones from the stochastic AR residual. The measured signal is treated conceptually as:
 
 $$
-x_{\text{test}}[k]
-=
-b
-+
-x_{\text{tones}}[k]
-+
-x_{\text{residual}}[k]
+x_{\text{test}}[k] = b + x_{\text{tones}}[k] + x_{\text{residual}}[k]
 $$
 
 The tonal component is modeled as:
 
 $$
-x_{\text{tones}}[k]
-=
-\sum_{i=1}^{N_t}
-A_i
-\sin
-\left(
-2\pi f_i t_k+\phi_i
-\right)
+x_{\text{tones}}[k] = \sum_{i=1}^{N_t} A_i \sin\left(2\pi f_i t_k + \phi_i\right)
 $$
 
-where each tone contains:
-
-- Frequency $f_i$
-- Amplitude $A_i$
-- Phase $\phi_i$
+where each tone contains a frequency $f_i$, amplitude $A_i$, and phase $\phi_i$.
 
 The residual used for AR identification is:
 
 $$
-x_{\text{residual}}[k]
-=
-x_{\text{test}}[k]
--
-b
--
-x_{\text{tones}}[k]
+x_{\text{residual}}[k] = x_{\text{test}}[k] - b - x_{\text{tones}}[k]
 $$
 
 The complete simulation model becomes:
 
 $$
-x_{\text{model}}[k]
-=
-b
-+
-x_{\text{tones}}[k]
-+
-x_{\text{AR}}[k]
+x_{\text{model}}[k] = b + x_{\text{tones}}[k] + x_{\text{AR}}[k]
 $$
-
-Therefore:
 
 > **The tones are modeled explicitly; the AR model represents the remaining colored stochastic residual.**
 
@@ -750,124 +560,63 @@ This distinction is important because including the same tones in both the expli
 
 ---
 
-# 14. Why Remove Bias Before Fitting the AR Model?
+## 14. Why Remove Bias Before Fitting the AR Model?
 
-Sensor bias is a different error mechanism from stochastic noise.
-
-If:
+Sensor bias is a different error mechanism from stochastic noise. If:
 
 $$
-y[k]
-=
-b+x[k]
+y[k] = b + x[k]
 $$
 
-then retaining $b$ when identifying the AR process introduces a strong DC component.
-
-That can distort:
-
-- The estimated mean
-- Low-frequency PSD
-- Autocorrelation
-- AR coefficient estimates
+then retaining $b$ when identifying the AR process introduces a strong DC component. That can distort the estimated mean, the low-frequency PSD, the autocorrelation, and the AR coefficient estimates.
 
 The bias is therefore estimated separately:
 
 $$
-b
-=
-\frac{1}{N}
-\sum_{k=1}^{N}y[k]
+b = \frac{1}{N}\sum_{k=1}^{N} y[k]
 $$
 
 and removed:
 
 $$
-x[k]
-=
-y[k]-b
+x[k] = y[k] - b
 $$
 
-The AR model is then fitted to a roughly zero-mean stochastic process.
-
-The bias is added back separately during simulation.
-
-This also allows bias and colored-noise characteristics to be modified independently.
+The AR model is then fitted to a roughly zero-mean stochastic process. The bias is added back separately during simulation. This also allows bias and colored-noise characteristics to be modified independently.
 
 ---
 
-# 15. Why Use the Residual Instead of Raw Sensor Data?
+## 15. Why Use the Residual Instead of Raw Sensor Data?
 
-The objective is to model **sensor error**, not physical vehicle or test motion.
-
-A measured gyro signal can be represented conceptually as:
+The objective is to model **sensor error**, not physical vehicle or test motion. A measured gyro signal can be represented conceptually as:
 
 $$
-y_{\text{sensor}}
-=
-x_{\text{true}}
-+
-b
-+
-x_{\text{tones}}
-+
-n
+y_{\text{sensor}} = x_{\text{true}} + b + x_{\text{tones}} + n
 $$
 
-where:
+where $x_{\text{true}}$ is actual motion, $b$ is bias, $x_{\text{tones}}$ are the modeled deterministic sensor-error tones, and $n$ is the stochastic residual.
 
-- $x_{\text{true}}$ = actual motion
-- $b$ = bias
-- $x_{\text{tones}}$ = modeled deterministic sensor-error tones
-- $n$ = stochastic residual
-
-If an AR model were fitted directly to the complete raw signal, it could incorrectly interpret:
-
-- Actual rotation
-- Test-fixture motion
-- Deterministic trends
-- Bias
-- Other non-noise behavior
-
-as stochastic sensor dynamics.
+If an AR model were fitted directly to the complete raw signal, it could incorrectly interpret actual rotation, test-fixture motion, deterministic trends, bias, and other non-noise behavior as stochastic sensor dynamics.
 
 The AR identification target is therefore the residual:
 
 $$
-r[k]
-=
-y_{\text{sensor}}[k]
--
-\hat{x}_{\text{true}}[k]
--
-\hat{b}
--
-\hat{x}_{\text{tones}}[k]
+r[k] = y_{\text{sensor}}[k] - \hat{x}_{\text{true}}[k] - \hat{b} - \hat{x}_{\text{tones}}[k]
 $$
 
 depending on which deterministic components are known and intentionally removed.
 
 ---
 
-# 16. Why Can the Raw Test PSD Have Larger Peaks Than the Residual PSD?
+## 16. Why Can the Raw Test PSD Have Larger Peaks Than the Residual PSD?
 
-The raw test signal contains all measured components.
-
-The residual has intentionally had some components removed.
-
-Therefore:
+The raw test signal contains all measured components. The residual has intentionally had some components removed. Therefore, in general:
 
 $$
-PSD_{\text{raw}}
-\neq
-PSD_{\text{residual}}
+PSD_{\text{raw}} \neq PSD_{\text{residual}}
 $$
 
-in general.
-
-If a spectral peak decreases after residualization, the interpretation depends on what was removed.
-
-A reduced peak may represent:
+If a spectral peak decreases after residualization, the interpretation depends on what was removed. A reduced peak may represent:
 
 - A real physical motion component that should not be modeled as sensor noise
 - A deterministic tone that is being modeled separately
@@ -878,68 +627,36 @@ Therefore, when comparing PSDs, it is important to state exactly which signal th
 For the AR component:
 
 $$
-PSD_{\text{AR}}
-\leftrightarrow
-PSD_{\text{test residual}}
+PSD_{\text{AR}} \leftrightarrow PSD_{\text{test residual}}
 $$
 
 For the complete sensor-error model:
 
 $$
-PSD_{\text{AR + tones}}
-\leftrightarrow
-PSD_{\text{de-biased test error containing tones}}
+PSD_{\text{AR + tones}} \leftrightarrow PSD_{\text{de-biased test error containing tones}}
 $$
 
 ---
 
-# 17. Why Does Increasing AR Order Improve the Fit?
+## 17. Why Does Increasing AR Order Improve the Fit?
 
-An AR($p$) model contains $p$ poles.
+An AR($p$) model contains $p$ poles. Increasing $p$ provides additional degrees of freedom for reproducing complex spectral structure.
 
-Increasing $p$ provides additional degrees of freedom for reproducing complex spectral structure.
-
-A low-order model may reproduce broad trends but fail to match:
-
-- Narrow peaks
-- Multiple spectral features
-- More complicated correlation behavior
-
-A larger order allows a more detailed rational approximation of the measured residual spectrum.
+A low-order model may reproduce broad trends but fail to match narrow peaks, multiple spectral features, or more complicated correlation behavior. A larger order allows a more detailed rational approximation of the measured residual spectrum.
 
 In this work, model order was selected pragmatically:
 
 > **The AR order was increased until sufficient agreement with the measured residual PSD was achieved for the spectral features relevant to the simulation.**
 
-Increasing order indefinitely is not automatically beneficial.
-
-Excessive order can introduce:
-
-- Higher computational cost
-- Numerical sensitivity
-- Spurious spectral features
-- Fitting of finite-record details that may not repeat in another test
-
-The selected model order should therefore be high enough to reproduce the required behavior without adding unnecessary complexity.
+Increasing order indefinitely is not automatically beneficial. Excessive order can introduce higher computational cost, numerical sensitivity, spurious spectral features, and fitting of finite-record details that may not repeat in another test. The selected model order should therefore be high enough to reproduce the required behavior without adding unnecessary complexity.
 
 ---
 
-# 18. What Does an AR Pole Mean Here?
+## 18. What Does an AR Pole Mean Here?
 
-An AR pole is primarily a **statistical-model pole**.
+An AR pole is primarily a **statistical-model pole**. It describes the dynamics required for the linear stochastic model to reproduce measured temporal correlation. It does not automatically represent a physical gyro mode.
 
-It describes the dynamics required for the linear stochastic model to reproduce measured temporal correlation.
-
-It does not automatically represent a physical gyro mode.
-
-Some AR poles may correspond to real mechanisms such as:
-
-- Mechanical resonances
-- Electronics
-- Sensor internal dynamics
-- Test-fixture vibration
-
-However, AR identification alone does not prove that physical interpretation.
+Some AR poles may correspond to real mechanisms such as mechanical resonances, electronics, sensor internal dynamics, or test-fixture vibration. However, AR identification alone does not prove that physical interpretation.
 
 A safe interpretation is:
 
@@ -947,128 +664,74 @@ A safe interpretation is:
 
 ---
 
-# 19. Why Validate Autocorrelation if the PSD Already Matches?
+## 19. Why Validate Autocorrelation if the PSD Already Matches?
 
 For a stationary process, PSD and autocorrelation contain related second-order information:
 
 $$
-S_x(e^{j\omega})
-=
-\mathcal{F}\{R_x[m]\}
+S_x(e^{j\omega}) = \mathcal{F}\{R_x[m]\}
 $$
 
-The PSD shows:
-
-> **How the noise power is distributed across frequency.**
-
-The autocorrelation shows:
-
-> **How strongly noise values remain related across time.**
-
-Using both provides a stronger validation than RMS alone.
+The PSD shows how the noise power is distributed across frequency. The autocorrelation shows how strongly noise values remain related across time. Using both provides a stronger validation than RMS alone.
 
 Model agreement should therefore include:
 
 $$
-PSD_{\text{model}}(f)
-\approx
-PSD_{\text{test}}(f)
+PSD_{\text{model}}(f) \approx PSD_{\text{test}}(f)
 $$
 
 and:
 
 $$
-R_{\text{model}}[m]
-\approx
-R_{\text{test}}[m]
+R_{\text{model}}[m] \approx R_{\text{test}}[m]
 $$
 
 A good match in autocorrelation directly verifies that the AR model is reproducing the measured process memory.
 
 ---
 
-# 20. Why Use Allan Deviation?
+## 20. Why Use Allan Deviation?
 
-Allan deviation evaluates stochastic behavior as a function of averaging time:
+Allan deviation evaluates stochastic behavior as a function of averaging time $\tau$. Instead of asking only "where is the power in frequency?", it also asks "how does the apparent noise level change as the observation interval changes?"
 
-$$
-\tau
-$$
-
-Instead of asking only:
-
-> "Where is the power in frequency?"
-
-it also asks:
-
-> "How does the apparent noise level change as the observation interval changes?"
-
-For this project, Allan deviation is used primarily as an **independent validation metric**.
-
-The desired comparison is:
+For this project, Allan deviation is used primarily as an **independent validation metric**. The desired comparison is:
 
 $$
-\sigma_{\text{A,test}}(\tau)
-\approx
-\sigma_{\text{A,model}}(\tau)
+\sigma_{\text{A,test}}(\tau) \approx \sigma_{\text{A,model}}(\tau)
 $$
 
-over the time scales supported by the available test record.
-
-A match indicates that the generated stochastic sequence behaves similarly to the measured residual over different averaging intervals.
+over the time scales supported by the available test record. A match indicates that the generated stochastic sequence behaves similarly to the measured residual over different averaging intervals.
 
 ---
 
-# 21. Is This an Angular Random Walk Model?
+## 21. Is This an Angular Random Walk Model?
 
-Not exactly.
-
-Angular random walk is one specific gyro-noise characteristic.
-
-The model developed here is more accurately described as:
+Not exactly. Angular random walk is one specific gyro-noise characteristic. The model developed here is more accurately described as:
 
 > **A test-derived colored stochastic gyro error model using autoregressive system identification.**
 
-The model may reproduce behavior associated with angular random walk, but it can also reproduce other colored-noise characteristics.
-
-Therefore, describing the entire model as only an "angular random walk model" would be unnecessarily restrictive.
+The model may reproduce behavior associated with angular random walk, but it can also reproduce other colored-noise characteristics. Therefore, describing the entire model as only an "angular random walk model" would be unnecessarily restrictive.
 
 ---
 
-# 22. Why AR Innovation Whiteness Matters
+## 22. Why AR Innovation Whiteness Matters
 
 The AR relationship can be written:
 
 $$
-A(z)x[k]
-=
-e[k]
+A(z)\, x[k] = e[k]
 $$
 
 where:
 
 $$
-A(z)
-=
-1+a_1z^{-1}+\cdots+a_pz^{-p}
+A(z) = 1 + a_1 z^{-1} + \cdots + a_p z^{-p}
 $$
 
-If the AR model successfully captures the predictable temporal correlation in the measured residual, then:
+If the AR model successfully captures the predictable temporal correlation in the measured residual, then $e[k]$ should contain relatively little remaining predictable structure. Ideally:
 
 $$
-e[k]
-$$
-
-should contain relatively little remaining predictable structure.
-
-Ideally:
-
-$$
-R_e[m]
-\approx
-0
-\qquad
-m\neq0
+R_e[m] \approx 0 \qquad m \neq 0
 $$
 
 and the innovation PSD should be substantially flatter than the original residual PSD.
@@ -1081,278 +744,122 @@ If not, that provides additional evidence that the AR model has captured the imp
 
 ---
 
-# 23. Why the Generated Time Trace Does Not Match the Test Trace
+## 23. Why the Generated Time Trace Does Not Match the Test Trace
 
-The generated model uses a new random innovation sequence.
-
-Therefore:
+The generated model uses a new random innovation sequence. Therefore:
 
 $$
-w_{\text{model}}[k]
-\neq
-w_{\text{test}}[k]
+w_{\text{model}}[k] \neq w_{\text{test}}[k]
 $$
 
 and consequently:
 
 $$
-x_{\text{model}}[k]
-\neq
-x_{\text{test}}[k]
+x_{\text{model}}[k] \neq x_{\text{test}}[k]
 $$
 
-sample-by-sample.
+sample-by-sample. This is expected — the goal of stochastic modeling is not to replay the original noise realization.
 
-This is expected.
-
-The goal of stochastic modeling is not to replay the original noise realization.
-
-The quantities expected to agree are statistical properties such as:
-
-- RMS
-- PSD
-- Autocorrelation
-- Tone frequency and power
-- Allan deviation
-- Distribution characteristics
-
-Therefore:
+The quantities expected to agree are statistical properties such as RMS, PSD, autocorrelation, tone frequency and power, Allan deviation, and distribution characteristics.
 
 > **Different waveforms with matching statistics can represent the same stochastic model.**
 
 ---
 
-# 24. Downsampling and Aliasing
+## 24. Downsampling and Aliasing
 
-The original test data may be sampled at a higher frequency than the simulation sensor update rate.
+The original test data may be sampled at a higher frequency than the simulation sensor update rate. For this study, the data is intentionally reduced to the simulation rate using direct sample selection / integer-stride decimation without an anti-alias filter.
 
-For this study, the data is intentionally reduced to the simulation rate using direct sample selection / integer-stride decimation without an anti-alias filter.
-
-Conceptually:
+Conceptually, $f_{\text{test}} \rightarrow f_{\text{model}}$ with:
 
 $$
-f_{\text{test}}
-\rightarrow
-f_{\text{model}}
+N_{\text{stride}} = \frac{f_{\text{test}}}{f_{\text{model}}}
 $$
 
-with:
-
-$$
-N_{\text{stride}}
-=
-\frac{f_{\text{test}}}
-{f_{\text{model}}}
-$$
-
-for an integer ratio.
-
-This choice is specific to the current test methodology.
+for an integer ratio. This choice is specific to the current test methodology.
 
 Normally, reducing sample rate without prefiltering can cause frequency components above the new Nyquist frequency:
 
 $$
-f_{\text{Nyquist}}
-=
-\frac{f_{\text{model}}}{2}
+f_{\text{Nyquist}} = \frac{f_{\text{model}}}{2}
 $$
 
 to alias into the retained frequency band.
 
-Therefore:
-
 > **The AR model represents the discrete residual sequence produced by the selected preprocessing and sampling procedure.**
 
-This is an important distinction.
-
-If the objective changes to reconstructing the underlying band-limited continuous sensor process rather than the intentionally decimated discrete sequence, anti-alias filtering should be considered before downsampling.
+This is an important distinction. If the objective changes to reconstructing the underlying band-limited continuous sensor process rather than the intentionally decimated discrete sequence, anti-alias filtering should be considered before downsampling.
 
 ---
 
-# 25. Validation Strategy
+## 25. Validation Strategy
 
-The model is not considered valid based only on visual agreement.
+The model is not considered valid based only on visual agreement. The following comparisons are used.
 
-The following comparisons are used.
+### 25.1 PSD Agreement
 
-## 25.1 PSD Agreement
-
-Compare:
-
-$$
-PSD_{\text{AR residual}}
-$$
-
-against:
-
-$$
-PSD_{\text{measured residual}}
-$$
-
-using identical Welch-processing parameters.
+Compare $PSD_{\text{AR residual}}$ against $PSD_{\text{measured residual}}$ using identical Welch-processing parameters.
 
 Useful quantitative metrics include:
 
-### PSD RMSE in dB
+**PSD RMSE in dB**
 
 $$
-E_{\text{PSD}}
-=
-\sqrt{
-\frac{1}{N_f}
-\sum_i
-\left[
-P_{\text{model,dB}}(f_i)
--
-P_{\text{test,dB}}(f_i)
-\right]^2
-}
+E_{\text{PSD}} = \sqrt{\frac{1}{N_f}\sum_i \left[P_{\text{model,dB}}(f_i) - P_{\text{test,dB}}(f_i)\right]^2}
 $$
 
-### Relative PSD L2 error
+**Relative PSD L2 error**
 
 $$
-E_{L2,\text{PSD}}
-=
-\frac{
-\left\|
-P_{\text{model}}-P_{\text{test}}
-\right\|_2
-}{
-\left\|
-P_{\text{test}}
-\right\|_2
-}
+E_{L2,\text{PSD}} = \frac{\left\|P_{\text{model}} - P_{\text{test}}\right\|_2}{\left\|P_{\text{test}}\right\|_2}
 $$
 
----
-
-## 25.2 RMS Agreement
+### 25.2 RMS Agreement
 
 Time-domain RMS:
 
 $$
-x_{\text{RMS}}
-=
-\sqrt{
-\frac{1}{N}
-\sum_{k=1}^{N}
-x[k]^2
-}
+x_{\text{RMS}} = \sqrt{\frac{1}{N}\sum_{k=1}^{N} x[k]^2}
 $$
 
 PSD-integrated RMS:
 
 $$
-x_{\text{RMS}}
-=
-\sqrt{
-\int_0^{f_N}
-S_x(f)\,df
-}
+x_{\text{RMS}} = \sqrt{\int_0^{f_N} S_x(f)\, df}
 $$
 
 These should agree within finite-record and PSD-estimation error.
 
----
-
-## 25.3 Tone Agreement
+### 25.3 Tone Agreement
 
 For each explicit tone:
 
-- Frequency error
+- Frequency error: $\Delta f_i = f_{i,\text{model}} - f_{i,\text{test}}$
+- Peak PSD error: $\Delta P_i = P_{i,\text{model,dB}} - P_{i,\text{test,dB}}$
+- Integrated local bandpower error:
 
 $$
-\Delta f_i
-=
-f_{i,\text{model}}
--
-f_{i,\text{test}}
+E_{P,i} = 100\, \frac{P_{i,\text{model}} - P_{i,\text{test}}}{P_{i,\text{test}}}
 $$
 
-- Peak PSD error
+### 25.4 Autocorrelation Agreement
+
+Compare $R_{\text{AR}}[m]$ against $R_{\text{test}}[m]$. A useful normalized error metric is:
 
 $$
-\Delta P_i
-=
-P_{i,\text{model,dB}}
--
-P_{i,\text{test,dB}}
+E_{L2,\text{ACF}} = \frac{\left\|R_{\text{AR}} - R_{\text{test}}\right\|_2}{\left\|R_{\text{test}}\right\|_2}
 $$
 
-- Integrated local bandpower error
+### 25.5 Allan-Deviation Agreement
 
-$$
-E_{P,i}
-=
-100
-\frac{
-P_{i,\text{model}}-P_{i,\text{test}}
-}{
-P_{i,\text{test}}
-}
-$$
+Compare $\sigma_{\text{A,AR}}(\tau)$ against $\sigma_{\text{A,test}}(\tau)$ over the averaging-time range supported by the test duration.
 
----
-
-## 25.4 Autocorrelation Agreement
-
-Compare:
-
-$$
-R_{\text{AR}}[m]
-$$
-
-against:
-
-$$
-R_{\text{test}}[m]
-$$
-
-A useful normalized error metric is:
-
-$$
-E_{L2,\text{ACF}}
-=
-\frac{
-\left\|
-R_{\text{AR}}-R_{\text{test}}
-\right\|_2
-}{
-\left\|
-R_{\text{test}}
-\right\|_2
-}
-$$
-
----
-
-## 25.5 Allan-Deviation Agreement
-
-Compare:
-
-$$
-\sigma_{\text{A,AR}}(\tau)
-$$
-
-against:
-
-$$
-\sigma_{\text{A,test}}(\tau)
-$$
-
-over the averaging-time range supported by the test duration.
-
----
-
-## 25.6 Innovation Whiteness
+### 25.6 Innovation Whiteness
 
 Apply the fitted AR polynomial to the measured residual:
 
 $$
-e[k]
-=
-A(z)x[k]
+e[k] = A(z)\, x[k]
 $$
 
 Then verify that:
@@ -1363,7 +870,7 @@ Then verify that:
 
 ---
 
-# 26. MATLAB-to-Simulation Model Transfer
+## 26. MATLAB-to-Simulation Model Transfer
 
 The quantities transferred from MATLAB to the simulation are:
 
@@ -1381,76 +888,36 @@ AR stochastic residual:
     noiseB
 ```
 
-where:
-
-```text
-noiseA = AR denominator coefficients
-noiseB = sqrt(innovation variance)
-```
+where `noiseA` are the AR denominator coefficients and `noiseB` is the square root of the innovation variance.
 
 The simulation generates:
 
 $$
-x_{\text{AR}}[k]
-=
-\texttt{noiseB}\,w[k]
--
-\sum_{i=1}^{p}
-\texttt{noiseA}[i]x[k-i]
+x_{\text{AR}}[k] = \texttt{noiseB}\, w[k] - \sum_{i=1}^{p} \texttt{noiseA}[i]\, x[k-i]
 $$
 
-with:
+with $w[k] \sim \mathcal{N}(0,1)$, and then forms:
 
 $$
-w[k]
-\sim
-\mathcal{N}(0,1)
-$$
-
-and then forms:
-
-$$
-x_{\text{sensor error}}
-=
-b
-+
-x_{\text{tones}}
-+
-x_{\text{AR}}
+x_{\text{sensor error}} = b + x_{\text{tones}} + x_{\text{AR}}
 $$
 
 ---
 
-# 27. White-Noise vs Test-Derived Simulation Comparison
+## 27. White-Noise vs Test-Derived Simulation Comparison
 
-After validating the model itself, a separate analysis evaluates its effect on the simulated gyro output.
+After validating the model itself, a separate analysis evaluates its effect on the simulated gyro output. Two otherwise equivalent simulation cases are compared:
 
-Two otherwise equivalent simulation cases are compared:
-
-## Case A — Existing white-noise model
+**Case A — Existing white-noise model**
 
 $$
-n[k]
-=
-\sigma w[k]
+n[k] = \sigma\, w[k], \qquad w[k] \sim \mathcal{N}(0,1)
 $$
 
-where:
+**Case B — Test-derived model**
 
 $$
-w[k]
-\sim
-\mathcal{N}(0,1)
-$$
-
-## Case B — Test-derived model
-
-$$
-n[k]
-=
-x_{\text{tones}}[k]
-+
-x_{\text{AR}}[k]
+n[k] = x_{\text{tones}}[k] + x_{\text{AR}}[k]
 $$
 
 The two cases should ideally have comparable total RMS so the comparison isolates the effect of **spectral structure**, rather than simply adding more noise power.
@@ -1458,92 +925,83 @@ The two cases should ideally have comparable total RMS so the comparison isolate
 The resulting gyro delta-angle output is then compared using PSD:
 
 $$
-PSD_{\Delta\theta,\text{white}}
+PSD_{\Delta\theta,\text{white}} \quad \text{versus} \quad PSD_{\Delta\theta,\text{AR+tones}}
 $$
 
-versus:
-
-$$
-PSD_{\Delta\theta,\text{AR+tones}}
-$$
-
-The expected result is:
-
-- White-noise model produces broadband stochastic content
-- Test-derived model produces measured spectral structure and tones in the actual simulated gyro output
+The expected result is that the white-noise model produces broadband stochastic content, while the test-derived model produces measured spectral structure and tones in the actual simulated gyro output.
 
 This demonstrates that the improved model changes the **sensor behavior seen by the simulation**, rather than merely producing a more complicated standalone noise waveform.
 
 ---
 
-# 28. Complete Model Interpretation
+## 28. Complete Model Interpretation
 
 The entire process can be summarized as:
 
 ```text
 Measured test data
-        ↓
+        |
+        v
 Select representative operating region
-        ↓
+        |
+        v
 Match simulation sample rate
-        ↓
+        |
+        v
 Separate bias
-        ↓
+        |
+        v
 Identify and remove deterministic tones
-        ↓
+        |
+        v
 Obtain stochastic residual
-        ↓
+        |
+        v
 Measure residual autocorrelation
-        ↓
+        |
+        v
 Yule-Walker AR identification
-        ↓
+        |
+        v
 AR coefficients + innovation variance
-        ↓
+        |
+        v
 Drive AR model with unit Gaussian noise
-        ↓
+        |
+        v
 Apply burn-in
-        ↓
+        |
+        v
 Generate colored stochastic residual
-        ↓
+        |
+        v
 Add explicit tones
-        ↓
+        |
+        v
 Add bias
-        ↓
+        |
+        v
 Validate statistical agreement
-        ↓
+        |
+        v
 Transfer model to simulation
 ```
 
 The core model is therefore:
 
 $$
-\boxed{
-x_{\text{model}}[k]
-=
-b
-+
-\sum_{i=1}^{N_t}
-A_i\sin(2\pi f_i t_k+\phi_i)
-+
-x_{\text{AR}}[k]
-}
+x_{\text{model}}[k] = b + \sum_{i=1}^{N_t} A_i \sin(2\pi f_i t_k + \phi_i) + x_{\text{AR}}[k]
 $$
 
 with:
 
 $$
-\boxed{
-x_{\text{AR}}[k]
-=
-\sqrt{\sigma_e^2}w[k]
--
-\sum_{i=1}^{p}a_i x_{\text{AR}}[k-i]
-}
+x_{\text{AR}}[k] = \sqrt{\sigma_e^2}\, w[k] - \sum_{i=1}^{p} a_i\, x_{\text{AR}}[k-i]
 $$
 
 ---
 
-# 29. Common Technical Questions
+## 29. Common Technical Questions
 
 | Question | Answer |
 |---|---|
@@ -1574,9 +1032,9 @@ $$
 
 ---
 
-# 30. Primary References
+## 30. Primary References
 
-1. **N. J. Kasdin**, *Discrete Simulation of Colored Noise and Stochastic Processes and $1/f^\alpha$ Power Law Noise Generation*, Proceedings of the IEEE, Vol. 83, No. 5, 1995.
+1. **N. J. Kasdin**, *Discrete Simulation of Colored Noise and Stochastic Processes and 1/f^α Power Law Noise Generation*, Proceedings of the IEEE, Vol. 83, No. 5, 1995.
 
    Particularly relevant topics:
    - Stochastic-process simulation
@@ -1599,48 +1057,21 @@ $$
 
 ---
 
-# 31. Key Takeaway
+## 31. Key Takeaway
 
-The developed approach does not simply increase the amount of gyro noise.
-
-It changes the **statistical model of the sensor error**.
+The developed approach does not simply increase the amount of gyro noise. It changes the **statistical model of the sensor error**.
 
 Instead of:
 
-$$
-\text{unit Gaussian noise}
-\rightarrow
-\text{RMS scaling}
-$$
+```text
+unit Gaussian noise -> RMS scaling
+```
 
 the improved approach is:
 
-$$
-\text{measured test behavior}
-\rightarrow
-\text{bias + tones + residual}
-\rightarrow
-\text{AR identification}
-\rightarrow
-\text{recursive colored-noise generation}
-\rightarrow
-\text{validated simulated gyro error}
-$$
+```text
+measured test behavior -> bias + tones + residual -> AR identification
+-> recursive colored-noise generation -> validated simulated gyro error
+```
 
-The goal is therefore to reproduce not just:
-
-$$
-\text{noise magnitude}
-$$
-
-but also:
-
-$$
-\text{spectral behavior}
-+
-\text{temporal correlation}
-+
-\text{time-scale behavior}
-$$
-
-observed in the measured sensor.
+The goal is therefore to reproduce not just noise magnitude, but also spectral behavior, temporal correlation, and time-scale behavior observed in the measured sensor.
