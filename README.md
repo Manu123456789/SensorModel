@@ -1001,7 +1001,7 @@ $$
 
 ---
 
-## 29. Common Technical Questions
+## 29. Q&A
 
 | Question | Answer |
 |---|---|
