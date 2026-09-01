@@ -1,0 +1,209 @@
+Yes. I would keep this as a completely separate analysis block from the model-validation code. This section is answering a different question:
+
+> **Does replacing RMS-scaled white noise with the test-derived colored-noise model measurably change the simulated gyro output?**
+
+Below is a compact skeleton. It generates:
+
+* overlaid \(\Delta\theta\) time histories,
+* overlaid PSDs,
+* a few useful numerical comparisons,
+* and an optional PSD-ratio plot if you want an especially clear view of where the colored model changes the output.
+
+```matlab
+%% ============================================================
+% SIM OUTPUT: WHITE NOISE VS COLORED AR NOISE
+%
+% Inputs:
+%   dThetaWhite   = gyro output using RMS white noise
+%   dThetaColored = gyro output using AR + tonal noise
+%   FsSim         = gyro output sample rate [Hz]
+%
+% Shows:
+%   1. Delta-theta time-history comparison
+%   2. Delta-theta PSD comparison
+% ============================================================
+
+%% USER INPUTS
+
+dThetaWhite   = YOUR_WHITE_NOISE_RUN(:);
+dThetaColored = YOUR_COLORED_NOISE_RUN(:);
+
+FsSim = YOUR_SAMPLE_RATE;
+
+
+%% FORMAT
+
+LW = 2;
+
+cWhite   = [0.0000 0.4470 0.7410];   % blue
+cColored = [0.4660 0.6740 0.1880];   % green
+
+set(groot, ...
+    'defaultAxesFontSize',12, ...
+    'defaultAxesFontWeight','bold', ...
+    'defaultTextFontSize',12, ...
+    'defaultTextFontWeight','bold');
+
+
+%% PREPARE DATA
+
+N = min(length(dThetaWhite),length(dThetaColored));
+
+dThetaWhite   = dThetaWhite(1:N);
+dThetaColored = dThetaColored(1:N);
+
+t = (0:N-1)'/FsSim;
+
+
+%% ============================================================
+% 1. DELTA-THETA TIME HISTORY
+%
+% Shows the actual sensor-output difference produced by replacing
+% white noise with the colored AR + tone model.
+% ============================================================
+
+figure
+
+plot(t,dThetaWhite, ...
+    'Color',cWhite, ...
+    'LineWidth',LW);
+
+hold on
+
+h = plot(t,dThetaColored, ...
+    ':', ...
+    'Color',cColored, ...
+    'LineWidth',LW);
+
+% Attempt transparency if supported by MATLAB version
+try
+    h.Color(4) = 0.55;
+end
+
+grid on
+
+xlabel('Time [s]')
+ylabel('\Delta\theta')
+title('Gyro Output: White vs Colored Noise')
+
+legend( ...
+    'RMS White Noise', ...
+    'AR + Tonal Noise', ...
+    'Location','best')
+
+
+%% ============================================================
+% 2. DELTA-THETA PSD
+%
+% Shows how the colored-noise model changes the frequency content
+% of the actual simulated gyro measurement.
+% ============================================================
+
+[Pwhite,f] = pwelch(dThetaWhite,[],[],[],FsSim);
+
+[Pcolor,fColor] = pwelch(dThetaColored,[],[],[],FsSim);
+
+if length(fColor) ~= length(f)
+    Pcolor = interp1(fColor,Pcolor,f,'linear','extrap');
+end
+
+
+figure
+
+semilogy(f,Pwhite, ...
+    'Color',cWhite, ...
+    'LineWidth',LW);
+
+hold on
+
+semilogy(f,Pcolor, ...
+    ':', ...
+    'Color',cColored, ...
+    'LineWidth',LW);
+
+grid on
+
+xlim([0 FsSim/2])
+
+xlabel('Frequency [Hz]')
+ylabel('PSD [units^2/Hz]')
+title('Gyro \Delta\theta PSD: White vs Colored Noise')
+
+legend( ...
+    'RMS White Noise', ...
+    'AR + Tonal Noise', ...
+    'Location','best')
+
+
+%% ============================================================
+% 3. SIMPLE QUANTITATIVE COMPARISON
+% ============================================================
+
+rmsWhite = sqrt(mean(dThetaWhite.^2));
+rmsColor = sqrt(mean(dThetaColored.^2));
+
+powerWhite = trapz(f,Pwhite);
+powerColor = trapz(f,Pcolor);
+
+psdDifference_dB = ...
+    10*log10(max(Pcolor,realmin)) - ...
+    10*log10(max(Pwhite,realmin));
+
+fprintf('\n============================================\n')
+fprintf('WHITE VS COLORED SENSOR OUTPUT\n')
+fprintf('============================================\n')
+
+fprintf('White output RMS   = %.8g\n',rmsWhite)
+fprintf('Colored output RMS = %.8g\n',rmsColor)
+
+fprintf('White PSD power    = %.8g\n',powerWhite)
+fprintf('Colored PSD power  = %.8g\n',powerColor)
+
+fprintf('Maximum PSD change = %.3f dB\n', ...
+    max(psdDifference_dB))
+
+fprintf('============================================\n')
+
+
+%% ============================================================
+% OPTIONAL: PSD CHANGE CAUSED BY COLORED MODEL
+%
+% Positive values indicate frequencies where the colored model
+% produces more output spectral power than the white-noise case.
+% ============================================================
+
+% figure
+% plot(f,psdDifference_dB, ...
+%     'Color',cColored, ...
+%     'LineWidth',LW);
+%
+% yline(0,'--','Color',[0.3 0.3 0.3]);
+%
+% grid on
+% xlim([0 FsSim/2])
+%
+% xlabel('Frequency [Hz]')
+% ylabel('Colored - White PSD [dB]')
+% title('Change in Gyro Output PSD Due to Colored Noise')
+```
+
+The **second figure is probably your strongest presentation result**. If the overall RMS levels are similar but the AR/tonal case shows clear peaks at the frequencies identified from testing, then your argument becomes:
+
+$$
+\boxed{
+\text{same general noise magnitude}
+\quad\text{but}\quad
+\text{different sensor-output behavior}
+}
+$$
+
+That directly demonstrates why using only an RMS-scaled white-noise term loses information.
+
+One improvement I would strongly consider: if you also have a **truth/no-noise \(\Delta\theta\)** output, subtract it first,
+
+```matlab
+errorWhite   = dThetaWhite   - dThetaTruth;
+errorColored = dThetaColored - dThetaTruth;
+```
+
+and perform the PSD comparison on those error signals. If the vehicle's actual angular motion is large, its deterministic frequency content can otherwise obscure the difference between the two noise models. The full-output plot is still worth showing, but the **truth-subtracted error PSD** is the cleanest proof that the tones entered the simulated sensor measurement.
