@@ -384,7 +384,7 @@ $$
 has:
 
 $$
-\operatorname{Var}(e) = b_{\text{Noise}}^2 = \sigma_e^2
+\text{Var}(e) = b_{\text{Noise}}^2 = \sigma_e^2
 $$
 
 The roles are therefore:
