@@ -1,0 +1,383 @@
+Context:
+These three settings control different parts of the validation, and only `maxWelchLength` scales directly with sampling frequency.
+
+## 1. `maxLagSec`: how much autocorrelation history to display
+
+This determines how far away from zero lag you compare the residual and AR autocorrelations.
+
+```matlab
+maxLag = round(maxLagSec*Fs);
+```
+
+Choose it long enough to show the important correlation decaying or repeating.
+
+Useful guidelines:
+
+* For general AR validation, start around:
+
+$$
+\text{maxLagSec}\approx 2\text{–}5\frac{p}{F_s}
+$$
+
+where \(p\) is the AR order.
+
+* Increase it if the autocorrelation has not approached zero by the edge of the plot.
+* If checking a remaining oscillation at \(f_{\min}\), display at least 2–3 periods:
+
+$$
+\text{maxLagSec}\geq\frac{2\text{–}3}{f_{\min}}
+$$
+
+* Avoid going much beyond about 10–20% of the data-record duration because large-lag estimates use fewer sample pairs and become unreliable.
+
+For example, with order 80 at 80 Hz:
+
+$$
+p/F_s=1\text{ second}
+$$
+
+so `maxLagSec = 2` to `5` seconds is reasonable. For a quick plot, 2 seconds is usually enough if the ACF has mostly decayed by then.
+
+The correct value depends more on the process's correlation time than on the sample rate itself.
+
+---
+
+## 2. `toneBandHalfWidthHz`: frequency range around each tone
+
+For a tone at \(f_j\), the script evaluates:
+
+$$
+[f_j-B,\;f_j+B]
+$$
+
+where \(B\) is `toneBandHalfWidthHz`.
+
+It should be wide enough to capture:
+
+* The tone's Welch-window leakage.
+* Small frequency-estimation errors.
+* Physical tone drift or broadening.
+
+First estimate the effective Welch resolution:
+
+$$
+\Delta f_{\text{effective}}\approx\frac{F_s}{L}
+$$
+
+where \(L\) is the Welch window length.
+
+For a Hamming window, a useful starting point is:
+
+$$
+B\approx2\text{–}3\Delta f_{\text{effective}}
+$$
+
+Then increase it if the measured tone spreads or drifts more than that:
+
+$$
+B\approx\max\left(2\Delta f_{\text{effective}},
+\text{expected tone drift}\right)
+$$
+
+Also keep it smaller than approximately half the distance to the nearest neighboring tone so the bands do not overlap:
+
+$$
+B<\frac{|f_j-f_{\text{neighbor}}|}{2}
+$$
+
+For your 80 Hz, 512-sample case:
+
+$$
+\Delta f_{\text{effective}}=\frac{80}{512}=0.15625\text{ Hz}
+$$
+
+Therefore:
+
+$$
+2\Delta f=0.3125\text{ Hz},
+\qquad
+3\Delta f=0.469\text{ Hz}
+$$
+
+So `toneBandHalfWidthHz = 0.5` Hz is a sensible choice.
+
+---
+
+## 3. `maxWelchLength`: PSD window length in samples
+
+This is the most directly sample-rate-dependent parameter.
+
+A larger window provides:
+
+* Better frequency resolution.
+* Better separation of close tones.
+* Fewer Welch averages and therefore a noisier PSD estimate.
+
+A shorter window provides:
+
+* More averaging and a smoother PSD.
+* Worse frequency resolution.
+* Broader-looking peaks.
+
+Choose your desired physical frequency resolution, \(\Delta f_{\text{target}}\), and calculate:
+
+$$
+L\approx\frac{F_s}{\Delta f_{\text{target}}}
+$$
+
+You can round \(L\) to a convenient value such as 256, 512, 1024, or 2048.
+
+Examples:
+
+| \(F_s\) | Window \(L\) | Window duration | Effective resolution \(F_s/L\) |
+| ------: | -----------: | --------------: | -----------------------------: |
+|   80 Hz |          256 |           3.2 s |                       0.313 Hz |
+|   80 Hz |          512 |           6.4 s |                       0.156 Hz |
+|   80 Hz |         1024 |          12.8 s |                       0.078 Hz |
+| 1000 Hz |         4096 |          4.10 s |                       0.244 Hz |
+| 1000 Hz |         8192 |          8.19 s |                       0.122 Hz |
+
+You must also leave enough data for Welch averaging. With 50% overlap, the approximate number of segments is:
+
+$$
+K\approx\frac{2N}{L}-1
+$$
+
+Aim for:
+
+* At least 4 segments for a basic comparison.
+* Preferably 6–10 segments for a reasonably stable PSD.
+
+For a desired number of segments \(K\):
+
+$$
+L<=\frac{2N}{K+1}
+$$
+
+If the required frequency resolution needs a longer window than this permits, the record is simply too short to provide both that resolution and stable averaging.
+
+One important detail: increasing `nfft` through zero-padding makes the plotted frequency grid finer, but it does not improve the true resolution. True resolution is controlled primarily by \(F_s/L\).
+
+## Practical selection order
+
+1. Decide the smallest frequency separation you need to resolve.
+2. Calculate:
+
+$$
+L\approx\frac{F_s}{\Delta f_{\text{target}}}
+$$
+
+3. Verify that the record provides at least 4–10 Welch segments.
+4. Set tone half-width to approximately:
+
+$$
+B=2-3*\frac{F_s}{L}
+$$
+
+and widen it for expected tone drift.
+5. Choose `maxLagSec` long enough for the residual ACF to decay, usually 2–5 times \(p/F_s\), but keep it well below the total record duration.
+
+If the sampling rate changes while the physical noise behavior stays the same:
+
+* `maxLagSec` generally stays the same.
+* `toneBandHalfWidthHz` generally stays the same.
+* `maxWelchLength` should scale approximately with \(F_s\).
+
+For your present 80 Hz analysis, `2 seconds`, `0.5 Hz`, and `512 samples` are reasonable starting settings.
+
+
+%% GYRO AR + TONE MODEL CORRELATION
+% Required sensorModel fields:
+% Fs, residual, toneFreq, toneAmp, tonePhase, noiseA, noiseB
+
+clc;
+close all;
+rng(1);                         % Repeatable single AR realization
+
+%% SETTINGS
+regimeToUse = 2;
+maxLagSec = 2;
+toneBandHalfWidthHz = 0.5;
+maxWelchLength = 512;
+
+model = sensorModel(regimeToUse);
+Fs = model.Fs;
+
+%% BUILD TEST AND MODEL SIGNALS
+residual = model.residual(:);
+residual = residual - mean(residual);
+N = length(residual);
+t = (0:N-1)'/Fs;
+
+toneModel = zeros(N,1);
+for j = 1:length(model.toneFreq)
+    toneModel = toneModel + model.toneAmp(j)*sin( ...
+        2*pi*model.toneFreq(j)*t + model.tonePhase(j));
+end
+toneModel = toneModel - mean(toneModel);
+
+% Burn-in removes the AR filter startup transient.
+burnIn = max(10*(length(model.noiseA)-1),round(5*Fs));
+w = randn(N+burnIn,1);
+arTemp = filter(model.noiseB,model.noiseA,w);
+arNoise = arTemp(burnIn+1:end);
+arNoise = arNoise - mean(arNoise);
+
+% Both complete signals exclude bias and have zero sample mean.
+testFull = residual + toneModel;
+testFull = testFull - mean(testFull);
+modelFull = arNoise + toneModel;
+modelFull = modelFull - mean(modelFull);
+
+%% COMMON WELCH SETTINGS
+segmentLength = min(maxWelchLength,N-1);
+if segmentLength < 8
+    error('Selected regime is too short for validation.')
+end
+window = hamming(segmentLength,'periodic');
+overlap = floor(segmentLength/2);
+nfft = max(256,2^nextpow2(segmentLength));
+
+%% 1. RESIDUAL VS AR STOCHASTIC PSD
+[Presidual,f] = pwelch(residual,window,overlap,nfft,Fs);
+[Par,~] = pwelch(arNoise,window,overlap,nfft,Fs);
+
+%% 2. FULL TEST VS AR + TONES PSD
+[PtestFull,~] = pwelch(testFull,window,overlap,nfft,Fs);
+[PmodelFull,~] = pwelch(modelFull,window,overlap,nfft,Fs);
+
+%% 3. DIFFERENCED TEST VS DIFFERENCED AR + TONES
+deltaTest = diff(testFull);
+deltaTest = deltaTest - mean(deltaTest);
+deltaModel = diff(modelFull);
+deltaModel = deltaModel - mean(deltaModel);
+
+[PdeltaTest,~] = pwelch(deltaTest,window,overlap,nfft,Fs);
+[PdeltaModel,~] = pwelch(deltaModel,window,overlap,nfft,Fs);
+
+%% 4. AUTOCORRELATION: RESIDUAL VS AR STOCHASTIC OUTPUT
+maxLag = min(round(maxLagSec*Fs),N-1);
+[Rresidual,lags] = xcorr(residual,maxLag,'coeff');
+[Rar,~] = xcorr(arNoise,maxLag,'coeff');
+lagSec = lags/Fs;
+
+%% 5. ALLAN DEVIATION: RESIDUAL VS AR STOCHASTIC OUTPUT
+maxM = floor((N-2)/2);
+m = unique(round(logspace(0,log10(maxM),35)));
+m = m(m >= 1 & m < (N-1)/2);
+
+[avarResidual,tauResidual] = allanvar(residual,m,Fs);
+[avarAR,tauAR] = allanvar(arNoise,m,Fs);
+adevResidual = sqrt(avarResidual);
+adevAR = sqrt(avarAR);
+
+%% PLOTS
+cTest = [0 0.4470 0.7410];
+cModel = [0.4660 0.6740 0.1880];
+cTone = [0.4940 0.1840 0.5560];
+
+figure('Name','AR + Tone Model Correlation');
+tiledlayout(3,2);
+
+nexttile;
+semilogy(f,Presidual,'Color',cTest,'LineWidth',2); hold on;
+semilogy(f,Par,'Color',cModel,'LineWidth',2);
+grid on; xlim([0 Fs/2]);
+xlabel('Frequency [Hz]'); ylabel('PSD [units^2/Hz]');
+title('Residual vs AR PSD');
+legend('Test Residual','One AR Realization','Location','best');
+
+nexttile;
+semilogy(f,PtestFull,'Color',cTest,'LineWidth',2); hold on;
+semilogy(f,PmodelFull,'Color',cModel,'LineWidth',2);
+for j = 1:length(model.toneFreq)
+    xline(model.toneFreq(j),'--','Color',cTone, ...
+        'LineWidth',1.5,'HandleVisibility','off');
+end
+grid on; xlim([0 Fs/2]);
+xlabel('Frequency [Hz]'); ylabel('PSD [units^2/Hz]');
+title('Full Test vs AR + Tones PSD');
+legend('Test Noise','One Model Realization','Location','best');
+
+nexttile;
+semilogy(f,PdeltaTest,'Color',cTest,'LineWidth',2); hold on;
+semilogy(f,PdeltaModel,'Color',cModel,'LineWidth',2);
+grid on; xlim([0 Fs/2]);
+xlabel('Frequency [Hz]'); ylabel('PSD [units^2/Hz]');
+title('Differenced Test vs Differenced Model');
+legend('Test Noise','Model Noise','Location','best');
+
+nexttile;
+plot(lagSec,Rresidual,'Color',cTest,'LineWidth',2); hold on;
+plot(lagSec,Rar,'Color',cModel,'LineWidth',2);
+grid on;
+xlabel('Lag [s]'); ylabel('Normalized Autocorrelation');
+title('Residual vs AR Autocorrelation');
+legend('Test Residual','AR Model','Location','best');
+
+nexttile;
+loglog(tauResidual,adevResidual,'Color',cTest,'LineWidth',2); hold on;
+loglog(tauAR,adevAR,'Color',cModel,'LineWidth',2);
+grid on;
+xlabel('Averaging Time, \tau [s]'); ylabel('Allan Deviation');
+title('Residual vs AR Allan Deviation');
+legend('Test Residual','AR Model','Location','best');
+
+nexttile;
+nPlot = min(N,round(5*Fs));
+plot(t(1:nPlot),testFull(1:nPlot),'Color',cTest,'LineWidth',1); hold on;
+plot(t(1:nPlot),modelFull(1:nPlot),'Color',cModel,'LineWidth',1);
+grid on;
+xlabel('Time [s]'); ylabel('Noise');
+title('First 5 Seconds of Complete Signals');
+legend('Test Noise','Model Noise','Location','best');
+
+%% NUMERICAL SUMMARY
+residualRMS = sqrt(mean(residual.^2));
+arRMS = sqrt(mean(arNoise.^2));
+testFullRMS = sqrt(mean(testFull.^2));
+modelFullRMS = sqrt(mean(modelFull.^2));
+deltaTestRMS = sqrt(mean(deltaTest.^2));
+deltaModelRMS = sqrt(mean(deltaModel.^2));
+
+psdRMSE = sqrt(mean((10*log10(max(Par,realmin)) - ...
+    10*log10(max(Presidual,realmin))).^2));
+fullPsdRMSE = sqrt(mean((10*log10(max(PmodelFull,realmin)) - ...
+    10*log10(max(PtestFull,realmin))).^2));
+deltaPsdRMSE = sqrt(mean((10*log10(max(PdeltaModel,realmin)) - ...
+    10*log10(max(PdeltaTest,realmin))).^2));
+acfRMSE = sqrt(mean((Rar-Rresidual).^2));
+
+valid = adevResidual > 0 & adevAR > 0;
+allanRMSE = sqrt(mean((20*log10(adevAR(valid)) - ...
+    20*log10(adevResidual(valid))).^2));
+
+fprintf('\nGYRO MODEL CORRELATION - REGIME %d\n',regimeToUse)
+fprintf('Residual RMS: test = %.6g, AR = %.6g, error = %.2f %%\n', ...
+    residualRMS,arRMS,100*(arRMS-residualRMS)/residualRMS)
+fprintf('Full RMS: test = %.6g, model = %.6g, error = %.2f %%\n', ...
+    testFullRMS,modelFullRMS,100*(modelFullRMS-testFullRMS)/testFullRMS)
+fprintf('Difference RMS: test = %.6g, model = %.6g, error = %.2f %%\n', ...
+    deltaTestRMS,deltaModelRMS,100*(deltaModelRMS-deltaTestRMS)/deltaTestRMS)
+fprintf('PSD RMSE: residual = %.3f dB, full = %.3f dB, difference = %.3f dB\n', ...
+    psdRMSE,fullPsdRMSE,deltaPsdRMSE)
+fprintf('ACF RMSE = %.5f, Allan RMSE = %.3f dB\n',acfRMSE,allanRMSE)
+
+%% TONE-BAND POWER ERRORS
+nTones = length(model.toneFreq);
+testBandPower = zeros(nTones,1);
+modelBandPower = zeros(nTones,1);
+
+for j = 1:nTones
+    band = [max(0,model.toneFreq(j)-toneBandHalfWidthHz), ...
+        min(Fs/2,model.toneFreq(j)+toneBandHalfWidthHz)];
+    testBandPower(j) = bandpower(PtestFull,f,band,'psd');
+    modelBandPower(j) = bandpower(PmodelFull,f,band,'psd');
+end
+
+bandPowerErrorPct = 100*(modelBandPower-testBandPower)./testBandPower;
+toneMetrics = table(model.toneFreq(:),testBandPower,modelBandPower, ...
+    bandPowerErrorPct,'VariableNames', ...
+    {'Frequency_Hz','TestPower','ModelPower','Error_pct'});
+
+disp(toneMetrics)
