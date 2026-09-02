@@ -1,0 +1,439 @@
+// ============================================================
+// Includes / Packages
+// ============================================================
+
+
+void error_sensor()
+{
+    // ========================================================
+    // Local Variables
+    // ========================================================
+
+    double noise[3];
+    double random_walk[3];
+    double random_noise[3];
+    double random_walk_noise[3];
+    double delta_noise[3];
+    double delta_measurement[3];
+
+    // --------------------------------------------------------
+    // Sensor / Platform Frame Variables
+    // --------------------------------------------------------
+
+    double frame_sens2plat[3][3];
+    double frame_sens2plat_T[3][3];
+    double noise_sensor_frame[3];
+    double noise_platform_frame[3];
+
+    // ========================================================
+    // TEST-DERIVED AR NOISE MODEL COEFFICIENTS
+    //
+    // MATLAB:
+    //
+    // sensorModel(regime).noiseA
+    // sensorModel(regime).noiseB
+    //
+    // MATLAB model:
+    //
+    //                  noiseB
+    // H(z) = ----------------------------
+    //         a0 + a1*z^-1 + ... + ap*z^-p
+    //
+    // aryule() normally returns:
+    //
+    // a0 = 1
+    //
+    // Replace the values and order below with the actual
+    // MATLAB output used by the simulation.
+    // ========================================================
+
+    static const int noise_model_order = 10;
+
+    static const double noise_model_a[noise_model_order + 1] =
+    {
+        1.0,        // a0
+        0.0,        // a1  <-- replace
+        0.0,        // a2  <-- replace
+        0.0,        // a3  <-- replace
+        0.0,        // a4  <-- replace
+        0.0,        // a5  <-- replace
+        0.0,        // a6  <-- replace
+        0.0,        // a7  <-- replace
+        0.0,        // a8  <-- replace
+        0.0,        // a9  <-- replace
+        0.0         // a10 <-- replace
+    };
+
+    // MATLAB:
+    //
+    // sensorModel(regime).noiseB
+    //
+    // Replace with actual value.
+    static const double noise_model_b = 0.0;
+
+    // ========================================================
+    // TEST-DERIVED EXPLICIT TONE MODEL
+    //
+    // MATLAB:
+    //
+    // sensorModel(regime).toneFreq
+    // sensorModel(regime).toneAmp
+    // sensorModel(regime).tonePhase
+    //
+    // Each entry at index j must describe the same tone:
+    //
+    // tone_frequency[j] = frequency [Hz]
+    // tone_amplitude[j] = peak amplitude [sensor units]
+    // tone_phase[j]     = phase [rad]
+    //
+    // Replace the number of tones and all array values with
+    // the selected regime's MATLAB output.
+    // ========================================================
+
+    static const int number_of_tones = 3;
+
+    static const double tone_frequency[number_of_tones] =
+    {
+        0.0,        // tone 1 frequency [Hz] <-- replace
+        0.0,        // tone 2 frequency [Hz] <-- replace
+        0.0         // tone 3 frequency [Hz] <-- replace
+    };
+
+    static const double tone_amplitude[number_of_tones] =
+    {
+        0.0,        // tone 1 amplitude <-- replace
+        0.0,        // tone 2 amplitude <-- replace
+        0.0         // tone 3 amplitude <-- replace
+    };
+
+    static const double tone_phase[number_of_tones] =
+    {
+        0.0,        // tone 1 phase [rad] <-- replace
+        0.0,        // tone 2 phase [rad] <-- replace
+        0.0         // tone 3 phase [rad] <-- replace
+    };
+
+    static const double two_pi =
+        6.283185307179586476925286766559;
+
+    // ========================================================
+    // AR FILTER MEMORY
+    //
+    // Stores previous AR RESIDUAL outputs only:
+    //
+    // history[0] = y[k-1]
+    // history[1] = y[k-2]
+    // ...
+    // history[p-1] = y[k-p]
+    //
+    // Do not store the explicit tone signal in this history.
+    // static is required because these values must persist
+    // between calls to error_sensor().
+    // ========================================================
+
+    static double noise_model_history[noise_model_order] =
+    {
+        0.0
+    };
+
+    // ========================================================
+    // SENSOR -> PLATFORM TRANSFORMATION MATRIX
+    //
+    // Replace these values with the existing transformation
+    // used by your simulation.
+    //
+    // Written explicitly in the format you currently use.
+    // ========================================================
+
+    frame_sens2plat[0][0] = 1.0;   // replace
+...
+    frame_sens2plat[2][2] = 1.0;   // replace
+
+    // ========================================================
+    // TRANSPOSE SENSOR -> PLATFORM MATRIX
+    //
+    // frame_sens2plat_T = transpose(frame_sens2plat)
+    //
+    // This follows the convention used by the existing
+    // noise-RMS implementation.
+    // ========================================================
+
+    for (int i = 0; i < 3; i++)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            frame_sens2plat_T[i][j] =
+                frame_sens2plat[j][i];
+        }
+    }
+
+    // ========================================================
+    // Existing Error Vector Calculations
+    //
+    // Used for errors such as scale-factor, delay,
+    // sensor-axis misalignment, etc.
+    // ========================================================
+
+    error_vector_multiplier(
+        xyz(0,0),
+        delaythta(0),
+        xyz(0,0)
+    ); // calculates error for delay
+
+    // ========================================================
+    // Generate RNG Values for Output Noise
+    // and Angular Random Walk
+    // ========================================================
+
+    size = 3;
+
+    rn_norm_limits(
+        &seed,
+        &size,
+        &random_noise[0]
+    );
+
+    rn_norm_limits(
+        &seed,
+        &size,
+        &random_walk_noise[0]
+    );
+
+    // ========================================================
+    // TEST-DERIVED AR RESIDUAL NOISE MODEL
+    //
+    // The MATLAB AR model was identified from SENSOR AXIS 2
+    // after removing bias and the explicit fitted tones.
+    //
+    // Physical sensor axes:
+    //
+    // Axis 1 --> C++ [0]
+    // Axis 2 --> C++ [1]
+    // Axis 3 --> C++ [2]
+    //
+    // MATLAB equivalent:
+    //
+    // arNoise = filter(noiseB,noiseA,randn(...));
+    // ========================================================
+
+    // --------------------------------------------------------
+    // Unit Gaussian stochastic input for SENSOR AXIS 2
+    // --------------------------------------------------------
+
+    double white_excitation =
+        random_noise[1];
+
+    // --------------------------------------------------------
+    // Begin current AR residual output:
+    //
+    // y[k] = b*w[k]
+    // --------------------------------------------------------
+
+    double sensor_axis2_ar_noise =
+        noise_model_b
+        * white_excitation;
+
+    // --------------------------------------------------------
+    // Apply all-pole denominator:
+    //
+    // y[k] =
+    //
+    // (
+    //     b*w[k]
+    //     - a1*y[k-1]
+    //     - a2*y[k-2]
+    //     ...
+    //     - ap*y[k-p]
+    // )
+    // / a0
+    // --------------------------------------------------------
+
+    for (int k = 1; k <= noise_model_order; k++)
+    {
+        sensor_axis2_ar_noise -=
+            noise_model_a[k]
+            * noise_model_history[k - 1];
+    }
+
+    sensor_axis2_ar_noise /=
+        noise_model_a[0];
+
+    // ========================================================
+    // Update AR Filter Memory
+    //
+    // Shift the previous AR residual outputs, then save the
+    // current AR residual y[k] as the newest history sample.
+    //
+    // IMPORTANT: Store sensor_axis2_ar_noise here, not the
+    // complete AR-plus-tone signal.
+    // ========================================================
+
+    for (int k = noise_model_order - 1; k > 0; k--)
+    {
+        noise_model_history[k] =
+            noise_model_history[k - 1];
+    }
+
+    noise_model_history[0] =
+        sensor_axis2_ar_noise;
+
+    // ========================================================
+    // GENERATE IDENTIFIED EXPLICIT TONES
+    //
+    // MATLAB equivalent:
+    //
+    // toneModel = toneModel + ...
+    //     toneAmp(j) * ...
+    //     sin(2*pi*toneFreq(j)*t + tonePhase(j));
+    //
+    // Use the existing global simulation time if the model is
+    // active from simulation t = 0.
+    //
+    // If the regime starts later, instead use:
+    //
+    // sensor_time = global_time - regime_start_time;
+    //
+    // Time must be in seconds.
+    // ========================================================
+
+    double sensor_time =
+        global_time; // Replace with actual global-time name.
+
+    double sensor_axis2_tones = 0.0;
+
+    for (int j = 0; j < number_of_tones; j++)
+    {
+        sensor_axis2_tones +=
+            tone_amplitude[j]
+            * std::sin(
+                two_pi
+                * tone_frequency[j]
+                * sensor_time
+                + tone_phase[j]
+            );
+    }
+
+    // ========================================================
+    // COMBINE AR RESIDUAL + EXPLICIT TONES
+    //
+    // This is equivalent to MATLAB:
+    //
+    // modelFull = arNoise + toneModel;
+    // ========================================================
+
+    double sensor_axis2_noise =
+        sensor_axis2_ar_noise
+        + sensor_axis2_tones;
+
+    // ========================================================
+    // Build SENSOR-FRAME Noise Vector
+    //
+    // The complete identified noise corresponds to physical
+    // SENSOR AXIS 2:
+    //
+    //                        [  0  ]
+    // noise_sensor_frame =   [ n2  ]
+    //                        [  0  ]
+    // ========================================================
+
+    noise_sensor_frame[0] = 0.0;
+
+    noise_sensor_frame[1] =
+        sensor_axis2_noise;
+
+    noise_sensor_frame[2] = 0.0;
+
+    // ========================================================
+    // Transform SENSOR-FRAME Noise -> PLATFORM FRAME
+    //
+    // noise_platform =
+    //
+    // transpose(frame_sens2plat) * [0, n2, 0]^T
+    // ========================================================
+
+    for (int i = 0; i < 3; i++)
+    {
+        noise_platform_frame[i] = 0.0;
+
+        for (int j = 0; j < 3; j++)
+        {
+            noise_platform_frame[i] +=
+                frame_sens2plat_T[i][j]
+                * noise_sensor_frame[j];
+        }
+    }
+
+    // ========================================================
+    // Assign Test-Derived Platform-Frame Noise
+    //
+    // This replaces the old white-noise RMS calculation.
+    // Do not multiply by the old noise RMS here.
+    //
+    // The assigned noise now already contains:
+    //
+    //     AR-shaped residual + identified tones
+    // ========================================================
+
+    for (int i = 0; i < 3; i++)
+    {
+        noise[i] =
+            noise_platform_frame[i];
+    }
+
+    // ========================================================
+    // Angular Random Walk
+    //
+    // Existing implementation remains unchanged.
+    // ========================================================
+
+    for (int i = 0; i < 3; i++)
+    {
+        random_walk[i] =
+            random_walk_noise[i]
+            + random_walk_convolution[i];
+    }
+
+    // ========================================================
+    // Calculate Final Sensor Delta / Measurement
+    //
+    // Existing implementation remains unchanged.
+    // ========================================================
+
+    for (int i = 0; i < 3; i++)
+    {
+        // ----------------------------------------------------
+        // Difference between the newly generated COMPLETE
+        // sensor noise and the noise stored from the previous
+        // update.
+        // ----------------------------------------------------
+
+        delta_noise[i] =
+            noise[i]
+            - internal_data.noise[i];
+
+        // ----------------------------------------------------
+        // Final measurement / sensor error accumulation
+        // ----------------------------------------------------
+
+        delta_measurement[i] =
+            delaythta(i)
+            + bias(i)
+            + other_error_terms(i)
+            + delta_noise[i]
+            + random_walk[i];
+
+        // ----------------------------------------------------
+        // Store the current COMPLETE transformed noise for the
+        // next sensor update.
+        // ----------------------------------------------------
+
+        internal_data.noise[i] =
+            noise[i];
+    }
+
+    // ========================================================
+    // Return
+    // ========================================================
+
+    return;
+}
