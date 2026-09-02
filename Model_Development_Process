@@ -1,0 +1,125 @@
+Your overall description is correct. The main correction is that the residual PSD and RMS characterize the residual; they do not generate the AR coefficients. `aryule` estimates the \(A\) coefficients and innovation variance from the residual’s autocorrelation using the Yule–Walker method. \(B\) is then the square root of that variance. [MathWorks `aryule` documentation](https://www.mathworks.com/help/signal/ref/aryule.html)
+
+Assuming a technical engineering audience, this is a clean two-slide version.
+
+## Slide 1 — Test data was decomposed into bias, tones, and colored noise
+
+### On-slide content
+
+**Objective**
+
+Replace a constant-RMS white-noise approximation with a regime-specific test-derived model:
+
+$$
+e[k]
+=
+b_{\mathrm{bias}}
++
+\sum_{j=1}^{N_t}A_j
+\sin(2\pi f_jk/F_s+\phi_j)
++
+y[k]
+$$
+
+**Identification process**
+
+1. Select the operating regime of interest.
+2. Downsample the test data to the required model rate \(F_s\).
+
+   * No anti-alias filter was applied.
+3. Estimate and remove the stationary bias.
+4. Use the FFT to locate dominant tone frequencies.
+5. Fit tone amplitudes and phases using least squares.
+6. Subtract the tone model to obtain the stochastic residual.
+7. Fit an order-\(p\) AR/all-pole model to the residual using Yule–Walker.
+
+$$
+[A,e]=\operatorname{aryule}(r,p),
+\qquad B=\sqrt{e}
+$$
+
+**Model outputs**
+
+$$
+\{F_s,\ b_{\mathrm{bias}},\ f_j,\ A_j,\ \phi_j,\ A(z),\ B\}
+$$
+
+### Speaker script
+
+> The original simulation represented sensor noise using white Gaussian noise multiplied by a measured RMS value. That reproduced the total noise magnitude, but it could not reproduce the frequency-dependent coloration or the discrete tones observed in the test data.
+>
+> I therefore identified a separate model for each operating regime. First, I extracted the regime of interest and downsampled the data to the rate required by the simulation. No anti-alias filter was applied, so the identified model represents the spectrum of the resulting downsampled sequence, including any aliased content.
+>
+> I calculated the stationary bias as the regime mean relative to the expected baseline and removed it before modeling the dynamic noise.
+>
+> I then used the FFT to identify the dominant tone frequencies. The number of tones was specified for each regime. Once the frequencies were selected, I performed a simultaneous sine-and-cosine least-squares fit to estimate each tone’s amplitude and phase.
+>
+> After subtracting the fitted tones, the remaining signal was treated as the stochastic residual. Its Welch PSD and integrated RMS were calculated to characterize its spectral shape and power.
+>
+> Finally, I applied MATLAB’s `aryule` function to the residual. This uses the Yule–Walker method to estimate the coefficients of an order-\(p\) autoregressive, or all-pole, model. It returns the denominator coefficients \(A\) and the estimated white-noise innovation variance. The filter numerator \(B\) is the square root of that variance.
+>
+> The resulting parameter set contains the bias, tone frequencies, amplitudes and phases, AR coefficients, innovation scale, and model sample rate.
+
+The conceptual foundation is consistent with Durbin’s treatment of fitting autoregressive time-series models and Kasdin’s description of producing colored noise by driving a linear recursive filter with white noise. [Durbin (1959)](sandbox:/workspace/scratch/171de1ec3cfd/project_sources/01-ISMS_1959_244-2-.pdf) and [Kasdin (1995)](sandbox:/workspace/scratch/171de1ec3cfd/project_sources/02-Discrete_simulation_of_colored_noise_and_stochastic_processes_and_1_f_sup__spl_alpha___power_law_noise_generation-2-.pdf)
+
+---
+
+## Slide 2 — The simulation reconstructs the identified model in real time
+
+### On-slide content
+
+**AR-shaped stochastic residual**
+
+$$
+y[k]
+=
+\frac{
+B\,w[k]-\sum_{m=1}^{p}a_m y[k-m]
+}{a_0},
+\qquad
+w[k]\sim\mathcal{N}(0,1)
+$$
+
+**Simulation sequence**
+
+1. Generate one unit-Gaussian innovation per sensor update.
+2. Apply the recursive AR filter using persistent output history.
+3. Generate the deterministic tones using simulation time:
+
+$$
+s[k]=\sum_j A_j\sin(2\pi f_jt_k+\phi_j)
+$$
+
+4. Combine the stochastic residual and tones:
+
+$$
+n_{\mathrm{sensor}}[k]=y[k]+s[k]
+$$
+
+5. Transform the identified sensor-axis noise into the platform frame.
+6. Pass the result through the existing sensor-error and delta-measurement logic.
+
+**Implementation requirements**
+
+* Update the model at the same \(F_s\) used for identification.
+* Store only AR residual values in the AR history.
+* Do not multiply the output by the old noise RMS.
+* Add the identified bias separately through the existing bias path.
+
+### Speaker script
+
+> The MATLAB parameters are transferred directly into the simulation. At every sensor update, the simulation generates a zero-mean, unit-standard-deviation Gaussian innovation.
+>
+> That innovation is scaled by \(B\) and passed through the recursive all-pole filter defined by the \(A\) coefficients. The filter history must persist between calls because the current colored-noise value depends on previous AR outputs.
+>
+> Separately, the deterministic tone contribution is reconstructed from the identified frequencies, amplitudes, and phases. The existing global simulation time can be used as long as it is in seconds and corresponds to the current sensor sample. If a model begins at a regime transition, the time can instead be measured relative to the beginning of that regime.
+>
+> The tone sum is added to the AR residual to reconstruct the complete dynamic noise model. This signal is placed on the identified sensor axis and transformed into the platform frame using the existing sensor-to-platform transformation.
+>
+> The transformed noise then enters the simulation’s existing delta-measurement calculation. The bias remains a separate error term, and the old RMS multiplier is removed because the AR innovation scale \(B\) already sets the stochastic output magnitude.
+>
+> The filter must update at the same sample rate used during identification. Otherwise, both the AR frequency response and the generated tone frequencies will be represented incorrectly.
+
+Kasdin specifically motivates recursive AR/IIR generation as a real-time method requiring only previous output history, which aligns closely with this C++ implementation. [Kasdin (1995)](sandbox:/workspace/scratch/171de1ec3cfd/project_sources/02-Discrete_simulation_of_colored_noise_and_stochastic_processes_and_1_f_sup__spl_alpha___power_law_noise_generation-2-.pdf)
+
+One conditional point to verify before presenting: if \(F_{s,\mathrm{in}}/F_s\) is not an integer—such as 1000/80—the rounded-index code does not create perfectly uniform 80 Hz samples. If your actual ratio is integer, the simple stride method is uniform and this concern does not apply.
