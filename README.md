@@ -1,3 +1,4 @@
+[test-derived-sensor-noise-model.md](https://github.com/user-attachments/files/31777023/test-derived-sensor-noise-model.md)
 # Test-Derived Colored Sensor Noise Model
 
 ## Purpose
@@ -11,16 +12,7 @@ This document summarizes the development, simulation implementation, and validat
 For a model identified at sample rate $F_s$, the simulated sensor error is
 
 $$
-x_{\mathrm{model}}[k]
-=
-\mu_b
-+
-\sum_{j=1}^{N_t} A_j
-\sin\!\left(2\pi f_j t_k+\phi_j\right)
-+
-n[k],
-\qquad
-t_k=\frac{k}{F_s},
+x_{\mathrm{model}}[k] = \mu_b + \sum_{j=1}^{N_t} A_j \sin\!\left(2\pi f_j t_k+\phi_j\right) + n[k], \qquad t_k=\frac{k}{F_s},
 $$
 
 where $\mu_b$ is the stationary bias, $N_t$ is the number of explicit tones, and $n[k]$ is the stochastic output of the AR filter.
@@ -49,10 +41,7 @@ Direct decimation without anti-alias filtering allows content above the new Nyqu
 For a selected downsampled record $x_{\mathrm{DS}}[k]$ containing $N$ samples, estimate the stationary bias as
 
 $$
-\mu_b
-=
-\frac{1}{N}
-\sum_{k=0}^{N-1}x_{\mathrm{DS}}[k].
+\mu_b = \frac{1}{N} \sum_{k=0}^{N-1}x_{\mathrm{DS}}[k].
 $$
 
 Remove the bias before identifying the tones and stochastic dynamics:
@@ -76,10 +65,7 @@ The FFT provides candidate tone frequencies. It does not, by itself, completely 
 At the selected frequencies, fit sine and cosine basis functions to the de-biased data using least squares. The explicit tone model is
 
 $$
-x_{\mathrm{tone}}[k]
-=
-\sum_{j=1}^{N_t} A_j
-\sin\!\left(2\pi f_j t_k+\phi_j\right).
+x_{\mathrm{tone}}[k] = \sum_{j=1}^{N_t} A_j \sin\!\left(2\pi f_j t_k+\phi_j\right).
 $$
 
 The fitted sine and cosine coefficients are converted into the amplitude $A_j$ and phase $\phi_j$ of each tone. Fitting all selected tones simultaneously reduces interference between the individual tone estimates.
@@ -89,13 +75,7 @@ The fitted sine and cosine coefficients are converted into the amplitude $A_j$ a
 Remove the stationary bias and fitted tone model from the downsampled measurement:
 
 $$
-r[k]
-=
-x_{\mathrm{DS}}[k]
--
-\mu_b
--
-x_{\mathrm{tone}}[k].
+r[k] = x_{\mathrm{DS}}[k] - \mu_b - x_{\mathrm{tone}}[k].
 $$
 
 The result $r[k]$ is the **stochastic residual** used for AR identification. It is the portion of the measurement assigned to the stochastic model, although it may still contain unmodeled tones, drift, or measurement artifacts.
@@ -123,11 +103,7 @@ The commonly cited samples-per-parameter ratio is only an informal screening heu
 Represent the stochastic residual using an order-$p$ autoregressive model:
 
 $$
-r[k]
-+
-\sum_{i=1}^{p} a_i r[k-i]
-=
-e[k],
+r[k] + \sum_{i=1}^{p} a_i r[k-i] = e[k],
 $$
 
 where $e[k]$ is a zero-mean white innovation sequence with variance $\sigma_e^2$.
@@ -142,12 +118,7 @@ bNoise = sqrt(noiseVar);
 The returned denominator coefficient vector is
 
 $$
-\mathbf{a}
-=
-\begin{bmatrix}
-a_0 & a_1 & \cdots & a_p
-\end{bmatrix},
-\qquad a_0=1,
+\mathbf{a} = \begin{bmatrix} a_0 & a_1 & \cdots & a_p \end{bmatrix}, \qquad a_0=1,
 $$
 
 and the white-noise input gain is
@@ -159,10 +130,7 @@ $$
 The corresponding all-pole shaping filter is
 
 $$
-H(z)
-=
-\frac{b_{\mathrm{noise}}}
-{a_0+\displaystyle\sum_{i=1}^{p}a_i z^{-i}}.
+H(z) = \frac{b_{\mathrm{noise}}} {a_0+\displaystyle\sum_{i=1}^{p}a_i z^{-i}}.
 $$
 
 The denominator coefficients establish the spectral coloring and temporal correlation, while $b_{\mathrm{noise}}$ establishes the appropriate innovation magnitude. Both are required to reproduce the residual noise power correctly.
@@ -215,34 +183,48 @@ $$
 w[k]\sim\mathcal{N}(0,1).
 $$
 
-### 2.4 Compute the AR colored-noise output
+This is a time-varying stochastic excitation, not static noise. The sample is multiplied by $b_{\mathrm{noise}}$ before entering the AR recursion.
 
-Apply the identified all-pole recursion to the white excitation:
+### 2.4 Compute the colored stochastic output
+
+Implement the all-pole filter using
 
 $$
-n[k]
-=
-b_{\mathrm{noise}}\, w[k]
--
-\sum_{i=1}^{p} a_i\, n[k-i].
+n[k] = \frac{ b_{\mathrm{noise}}w[k] - \displaystyle\sum_{i=1}^{p}a_i n[k-i] }{a_0}.
 $$
+
+For coefficients produced by MATLAB `aryule`, $a_0=1$. Retaining the division by $a_0$ nevertheless implements the complete transfer-function definition and avoids relying on an implicit normalization assumption.
+
+The feedback contribution from the stored outputs creates the spectral coloring and temporal memory of the modeled stochastic process.
 
 ### 2.5 Update the AR history
 
-After computing $n[k]$, shift the persistent history buffer so that $n[k]$ becomes the most recent stored value for the next update.
+After computing $n[k]$:
 
-### 2.6 Evaluate the deterministic tones
+1. shift the stored stochastic outputs by one position, beginning with the oldest index to avoid overwriting required values; and
+2. save $n[k]$ as the newest history sample.
 
-Using the current simulation time $t_k$, evaluate the explicit tone model directly rather than through the AR recursion:
+The stored value is the current **AR colored-noise output**. It is not the original test residual and it is not the complete sensor error containing bias and tones.
+
+### 2.6 Generate the deterministic tones
+
+At every update, evaluate the tone model using the current simulation time:
 
 $$
-x_{\mathrm{tone}}[k]
-=
-\sum_{j=1}^{N_t} A_j
-\sin\!\left(2\pi f_j t_k+\phi_j\right).
+x_{\mathrm{tone}}(t) = \sum_{j=1}^{N_t} A_j \sin\!\left(2\pi f_j t+\phi_j\right).
 $$
 
-Keeping the tones deterministic and separate from the AR history prevents them from being filtered by the stochastic recursion and avoids the possibility that the AR model could inadvertently double-count deterministic tonal behavior.
+The simulation time must be expressed in seconds and remain continuous between calls. The tone parameters may be stored as constants, but the instantaneous tone signal is recalculated from time and is not included in the AR history.
+
+#### Why the tones are excluded from the AR history
+
+The AR model was identified from the stochastic residual after the tones were removed. Its state must therefore contain only the stochastic AR output. Feeding the tones back through the AR history would:
+
+- filter the tones a second time;
+- alter their fitted amplitudes and phases;
+- potentially amplify them near AR resonances;
+- contaminate the stochastic filter state; and
+- double-count deterministic tonal behavior.
 
 The explicit tones are external deterministic components and are added only after the stochastic AR output has been generated.
 
@@ -251,19 +233,13 @@ The explicit tones are external deterministic components and are added only afte
 Combine the three model components in the sensor frame:
 
 $$
-e_2[k]=\mu_b+x_{\mathrm{tone}}[k]+n[k].
+e_2[k] = \mu_b + x_{\mathrm{tone}}[k] + n[k].
 $$
 
 For a model identified on the second sensor axis, form
 
 $$
-\mathbf{e}_{\mathrm{sensor}}[k]
-=
-\begin{bmatrix}
-0\\
-e_2[k]\\
-0
-\end{bmatrix}.
+\mathbf{e}_{\mathrm{sensor}}[k] = \begin{bmatrix} 0\\ e_2[k]\\ 0 \end{bmatrix}.
 $$
 
 If the bias is already applied through an existing simulation path, it must not be added a second time.
@@ -273,10 +249,7 @@ If the bias is already applied through an existing simulation path, it must not 
 Apply the established sensor-to-platform rotation:
 
 $$
-\mathbf{e}_{\mathrm{platform}}[k]
-=
-\mathbf{R}_{\mathrm{sensor}\rightarrow\mathrm{platform}}
-\mathbf{e}_{\mathrm{sensor}}[k].
+\mathbf{e}_{\mathrm{platform}}[k] = \mathbf{R}_{\mathrm{sensor}\rightarrow\mathrm{platform}} \mathbf{e}_{\mathrm{sensor}}[k].
 $$
 
 In the current implementation, this conversion is performed using the transpose of the stored transformation matrix, consistent with the existing frame convention. Combining the bias, tones, and colored noise before the transformation ensures that the complete sensor-frame error is rotated consistently.
@@ -333,21 +306,13 @@ PSD agreement demonstrates that the model reproduces how the measured signal pow
 For a zero-mean signal with a one-sided PSD $S_{xx}(f)$, the variance over the modeled band is
 
 $$
-\sigma_x^2
-=
-\int_{0}^{F_s/2} S_{xx}(f)\,df,
+\sigma_x^2 = \int_{0}^{F_s/2} S_{xx}(f)\,df,
 $$
 
 and the broadband noise RMS is
 
 $$
-\mathrm{RMS}_{\mathrm{noise}}
-=
-\sigma_x
-=
-\sqrt{
-\int_{0}^{F_s/2} S_{xx}(f)\,df
-}.
+\mathrm{RMS}_{\mathrm{noise}} = \sigma_x = \sqrt{ \int_{0}^{F_s/2} S_{xx}(f)\,df }.
 $$
 
 This should be described as the **broadband noise RMS over the modeled bandwidth**. Agreement confirms that the model reproduces the total fluctuating noise power, while the PSD comparison confirms how that power is distributed across frequency.
@@ -355,9 +320,7 @@ This should be described as the **broadband noise RMS over the modeled bandwidth
 If a nonzero bias is retained, the total signal RMS is different from the zero-mean noise RMS:
 
 $$
-\mathrm{RMS}_{\mathrm{total}}
-=
-\sqrt{\mu_b^2+\sigma_x^2}.
+\mathrm{RMS}_{\mathrm{total}} = \sqrt{\mu_b^2+\sigma_x^2}.
 $$
 
 Accordingly, the signal must be de-biased when the intended comparison is specifically the stochastic noise RMS.
@@ -367,17 +330,13 @@ Accordingly, the signal must be de-biased when the intended comparison is specif
 For a zero-mean stationary process, the autocorrelation is
 
 $$
-R_{xx}[\ell]
-=
-\operatorname{E}\!\left\{x[k]x[k-\ell]\right\}.
+R_{xx}[\ell] = \operatorname{E}\!\left\{x[k]x[k-\ell]\right\}.
 $$
 
 The normalized autocorrelation is
 
 $$
-\rho_{xx}[\ell]
-=
-\frac{R_{xx}[\ell]}{R_{xx}[0]}.
+\rho_{xx}[\ell] = \frac{R_{xx}[\ell]}{R_{xx}[0]}.
 $$
 
 Compare the measured and modeled autocorrelation over physically relevant time lags. The decay rate, oscillations, and characteristic lag structure describe how strongly successive samples are related and therefore reveal the temporal memory of the colored noise.
@@ -395,10 +354,7 @@ for a zero-mean stationary process.
 For a wide-sense stationary discrete process, the PSD and autocorrelation are related by the discrete-time Wiener-Khinchin relation:
 
 $$
-S_{xx}\!\left(e^{j\omega}\right)
-=
-\sum_{\ell=-\infty}^{\infty}
-R_{xx}[\ell]e^{-j\omega\ell}.
+S_{xx}\!\left(e^{j\omega}\right) = \sum_{\ell=-\infty}^{\infty} R_{xx}[\ell]e^{-j\omega\ell}.
 $$
 
 Therefore, PSD and autocorrelation are not completely independent validation quantities. They are complementary representations of the same second-order statistics:
