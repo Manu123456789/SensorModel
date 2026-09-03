@@ -1,5 +1,3 @@
-
-[test_derived_sensor_noise_model.md](https://github.com/user-attachments/files/31776632/test_derived_sensor_noise_model.md)
 # Test-Derived Colored Sensor Noise Model
 
 ## Purpose
@@ -217,57 +215,34 @@ $$
 w[k]\sim\mathcal{N}(0,1).
 $$
 
-This is a time-varying stochastic excitation, not static noise. The sample is multiplied by $b_{\mathrm{noise}}$ before entering the AR recursion.
+### 2.4 Compute the AR colored-noise output
 
-### 2.4 Compute the colored stochastic output
-
-Implement the all-pole filter using
+Apply the identified all-pole recursion to the white excitation:
 
 $$
 n[k]
 =
-\frac{
-b_{\mathrm{noise}}w[k]
+b_{\mathrm{noise}}\, w[k]
 -
-\displaystyle\sum_{i=1}^{p}a_i n[k-i]
-}{a_0}.
+\sum_{i=1}^{p} a_i\, n[k-i].
 $$
-
-For coefficients produced by MATLAB `aryule`, $a_0=1$. Retaining the division by $a_0$ nevertheless implements the complete transfer-function definition and avoids relying on an implicit normalization assumption.
-
-The feedback contribution from the stored outputs creates the spectral coloring and temporal memory of the modeled stochastic process.
 
 ### 2.5 Update the AR history
 
-After computing $n[k]$:
+After computing $n[k]$, shift the persistent history buffer so that $n[k]$ becomes the most recent stored value for the next update.
 
-1. shift the stored stochastic outputs by one position, beginning with the oldest index to avoid overwriting required values; and
-2. save $n[k]$ as the newest history sample.
+### 2.6 Evaluate the deterministic tones
 
-The stored value is the current **AR colored-noise output**. It is not the original test residual and it is not the complete sensor error containing bias and tones.
-
-### 2.6 Generate the deterministic tones
-
-At every update, evaluate the tone model using the current simulation time:
+Using the current simulation time $t_k$, evaluate the explicit tone model directly rather than through the AR recursion:
 
 $$
-x_{\mathrm{tone}}(t)
+x_{\mathrm{tone}}[k]
 =
 \sum_{j=1}^{N_t} A_j
-\sin\!\left(2\pi f_j t+\phi_j\right).
+\sin\!\left(2\pi f_j t_k+\phi_j\right).
 $$
 
-The simulation time must be expressed in seconds and remain continuous between calls. The tone parameters may be stored as constants, but the instantaneous tone signal is recalculated from time and is not included in the AR history.
-
-#### Why the tones are excluded from the AR history
-
-The AR model was identified from the stochastic residual after the tones were removed. Its state must therefore contain only the stochastic AR output. Feeding the tones back through the AR history would:
-
-- filter the tones a second time;
-- alter their fitted amplitudes and phases;
-- potentially amplify them near AR resonances;
-- contaminate the stochastic filter state; and
-- double-count deterministic tonal behavior.
+Keeping the tones deterministic and separate from the AR history prevents them from being filtered by the stochastic recursion and avoids the possibility that the AR model could inadvertently double-count deterministic tonal behavior.
 
 The explicit tones are external deterministic components and are added only after the stochastic AR output has been generated.
 
@@ -276,13 +251,7 @@ The explicit tones are external deterministic components and are added only afte
 Combine the three model components in the sensor frame:
 
 $$
-e_2[k]
-=
-\mu_b
-+
-x_{\mathrm{tone}}[k]
-+
-n[k].
+e_2[k]=\mu_b+x_{\mathrm{tone}}[k]+n[k].
 $$
 
 For a model identified on the second sensor axis, form
