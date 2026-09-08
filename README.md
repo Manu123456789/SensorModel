@@ -396,7 +396,7 @@ For a Gaussian stochastic residual, matching the mean and second-order statistic
 
 ---
 
-## Condensed Presentation Summary
+## Condensed Summary
 
 ### Model development
 
