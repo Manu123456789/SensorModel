@@ -1,7 +1,5 @@
 // ============================================================
-// STANDARD C++ HEADERS NEEDED FOR CSV MODEL LOADING
-// Keep these in the SAME existing C++ source file.
-// No additional compilation unit is required.
+// Includes / Packages
 // ============================================================
 
 #include <cmath>
@@ -9,31 +7,34 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 // ============================================================
-// TEST-DERIVED SENSOR MODEL CONTAINER
+// TEST-DERIVED SENSOR MODEL CSV CONTAINER
+//
+// Each CSV contains ONE regime and has these columns:
+//
+// filter_order, number_of_tones, tone_frequency,
+// tone_amplitude, tone_phase, noise_model_A, noise_model_B
+//
+// Rows are padded to length(noise_model_A) = filter_order + 1.
 // ============================================================
 
 struct SensorNoiseModel
 {
-    double Fs = 0.0;
-    double bias = 0.0;
-    int noiseOrder = 0;
-    double noiseB = 0.0;
-    int numberOfTones = 0;
+    int filter_order = 0;
+    int number_of_tones = 0;
 
-    std::vector<double> noiseA;
-    std::vector<double> toneFrequency;
-    std::vector<double> toneAmplitude;
-    std::vector<double> tonePhase;
+    std::vector<double> tone_frequency;
+    std::vector<double> tone_amplitude;
+    std::vector<double> tone_phase;
+    std::vector<double> noise_model_A;
+
+    double noise_model_B = 0.0;
 };
 
 // ============================================================
 // SIMPLE CSV SPLIT
-// MATLAB export contains numeric fields only, so quoted-field
-// handling is not required here.
 // ============================================================
 
 static std::vector<std::string> split_csv(const std::string& line)
@@ -54,28 +55,26 @@ static std::vector<std::string> split_csv(const std::string& line)
 }
 
 // ============================================================
-// LOAD ONE SELECTED REGIME FROM THE CSV
+// LOAD ONE REGIME CSV
 // ============================================================
 
 static SensorNoiseModel load_sensor_model_csv(
-    const std::string& csvPath,
-    int regimeToUse)
+    const std::string& csv_path)
 {
-    std::ifstream file(csvPath.c_str());
+    std::ifstream file(csv_path.c_str());
 
     if (!file.is_open())
-        throw std::runtime_error("Could not open sensor model CSV: " + csvPath);
+        throw std::runtime_error(
+            "Could not open sensor model CSV: " + csv_path);
 
     std::string line;
 
+    // Discard header row.
     if (!std::getline(file,line))
         throw std::runtime_error("Sensor model CSV is empty.");
 
-    std::vector<std::string> headers = split_csv(line);
-    std::unordered_map<std::string,int> column;
-
-    for (int i = 0; i < static_cast<int>(headers.size()); ++i)
-        column[headers[i]] = i;
+    SensorNoiseModel model;
+    int row = 0;
 
     while (std::getline(file,line))
     {
@@ -84,55 +83,57 @@ static SensorNoiseModel load_sensor_model_csv(
 
         std::vector<std::string> field = split_csv(line);
 
-        int regime = std::stoi(field[column.at("Regime")]);
+        if (field.size() < 7)
+            throw std::runtime_error(
+                "Sensor model CSV has an invalid row.");
 
-        if (regime != regimeToUse)
-            continue;
-
-        SensorNoiseModel model;
-
-        model.Fs = std::stod(field[column.at("Fs")]);
-        model.bias = std::stod(field[column.at("Bias")]);
-        model.noiseOrder = std::stoi(field[column.at("NoiseOrder")]);
-        model.noiseB = std::stod(field[column.at("NoiseB")]);
-        model.numberOfTones = std::stoi(field[column.at("NumTones")]);
-
-        model.noiseA.resize(model.noiseOrder + 1);
-
-        for (int k = 0; k <= model.noiseOrder; ++k)
+        // Scalars are repeated down the CSV, but only the first
+        // row is needed to initialize them.
+        if (row == 0)
         {
-            std::string name = "A" + std::to_string(k);
-            model.noiseA[k] = std::stod(field[column.at(name)]);
+            model.filter_order = std::stoi(field[0]);
+            model.number_of_tones = std::stoi(field[1]);
+            model.noise_model_B = std::stod(field[6]);
         }
 
-        model.toneFrequency.resize(model.numberOfTones);
-        model.toneAmplitude.resize(model.numberOfTones);
-        model.tonePhase.resize(model.numberOfTones);
+        // noise_model_A is valid on every row.
+        model.noise_model_A.push_back(
+            std::stod(field[5]));
 
-        for (int j = 0; j < model.numberOfTones; ++j)
+        // Tone values occupy only the first number_of_tones rows.
+        // Remaining tone cells are NaN padding and are ignored.
+        if (row < model.number_of_tones)
         {
-            std::string n = std::to_string(j + 1);
+            model.tone_frequency.push_back(
+                std::stod(field[2]));
 
-            model.toneFrequency[j] =
-                std::stod(field[column.at("ToneFreq" + n)]);
+            model.tone_amplitude.push_back(
+                std::stod(field[3]));
 
-            model.toneAmplitude[j] =
-                std::stod(field[column.at("ToneAmp" + n)]);
-
-            model.tonePhase[j] =
-                std::stod(field[column.at("TonePhase" + n)]);
+            model.tone_phase.push_back(
+                std::stod(field[4]));
         }
 
-        return model;
+        row++;
     }
 
-    throw std::runtime_error(
-        "Requested sensor-model regime was not found in CSV.");
+    if (static_cast<int>(model.noise_model_A.size())
+        != model.filter_order + 1)
+    {
+        throw std::runtime_error(
+            "noise_model_A length does not match filter_order + 1.");
+    }
+
+    if (static_cast<int>(model.tone_frequency.size())
+        != model.number_of_tones)
+    {
+        throw std::runtime_error(
+            "Tone count does not match number_of_tones.");
+    }
+
+    return model;
 }
 
-// ============================================================
-// EXISTING SENSOR FUNCTION
-// ============================================================
 
 void error_sensor()
 {
@@ -147,150 +148,212 @@ void error_sensor()
     double delta_noise[3];
     double delta_measurement[3];
 
+    // --------------------------------------------------------
+    // Sensor / Platform Frame Variables
+    // --------------------------------------------------------
+
     double frame_sens2plat[3][3];
     double frame_sens2plat_T[3][3];
     double noise_sensor_frame[3];
     double noise_platform_frame[3];
 
     // ========================================================
-    // CSV MODEL SELECTION
+    // SELECT TEST-DERIVED SENSOR MODEL
     //
-    // Point this to the CSV produced by MATLAB.
-    // Ideally regimeToUse comes from your normal sim/config
-    // input instead of being hard-coded here.
+    // Only change regime_to_use when you want a different
+    // model.  The file name is constructed automatically:
     //
-    // The CSV is read ONLY when the selected regime changes,
-    // not at every sensor update.
-    // ========================================================
-
-    const std::string sensorModelCsv =
-        "/YOUR/DIRECTORY/sensor_models.csv";
-
-    int regimeToUse = 2; // Replace with your sim/config value.
-
-    static int loadedRegime = -1;
-    static SensorNoiseModel model;
-    static std::vector<double> noise_model_history;
-    static double regime_start_time = 0.0;
-
-    if (loadedRegime != regimeToUse)
-    {
-        model = load_sensor_model_csv(sensorModelCsv,regimeToUse);
-
-        noise_model_history.assign(
-            model.noiseOrder,
-            0.0);
-
-        loadedRegime = regimeToUse;
-
-        // Fitted tone phase is referenced to t = 0 at the
-        // beginning of the identified regime.
-        regime_start_time = global_time;
-    }
-
-    // ========================================================
-    // YOUR EXISTING SENSOR -> PLATFORM MATRIX SETUP GOES HERE
-    // ========================================================
-
-    // frame_sens2plat[0][0] = ...;
+    // sensor_model_regime_1.csv
+    // sensor_model_regime_2.csv
     // ...
+    // ========================================================
 
-    for (int i = 0; i < 3; ++i)
+    static const std::string sensor_model_directory =
+        "/YOUR/DIRECTORY";
+
+    static const int regime_to_use = 3;
+
+    static const std::string sensor_model_csv =
+        sensor_model_directory
+        + "/sensor_model_regime_"
+        + std::to_string(regime_to_use)
+        + ".csv";
+
+    // Read the CSV once when the simulation first calls this
+    // function.  Do NOT read the file every sensor update.
+    static const SensorNoiseModel sensor_model =
+        load_sensor_model_csv(sensor_model_csv);
+
+    // Keep the names used by the original implementation so
+    // the remainder of the function stays recognizable.
+    const int noise_model_order =
+        sensor_model.filter_order;
+
+    const int number_of_tones =
+        sensor_model.number_of_tones;
+
+    const std::vector<double>& noise_model_a =
+        sensor_model.noise_model_A;
+
+    const double noise_model_b =
+        sensor_model.noise_model_B;
+
+    const std::vector<double>& tone_frequency =
+        sensor_model.tone_frequency;
+
+    const std::vector<double>& tone_amplitude =
+        sensor_model.tone_amplitude;
+
+    const std::vector<double>& tone_phase =
+        sensor_model.tone_phase;
+
+    static const double two_pi =
+        6.283185307179586476925286766559;
+
+    // ========================================================
+    // AR FILTER MEMORY
+    //
+    // Sized automatically from the filter order loaded from
+    // the CSV.  Previous AR residual outputs only are stored.
+    // ========================================================
+
+    static std::vector<double> noise_model_history(
+        sensor_model.filter_order,
+        0.0);
+
+    // ========================================================
+    // SENSOR -> PLATFORM TRANSFORMATION MATRIX
+    // ========================================================
+
+    frame_sens2plat[0][0] = 1.0;   // replace
+    // ... existing matrix values ...
+    frame_sens2plat[2][2] = 1.0;   // replace
+
+    // ========================================================
+    // TRANSPOSE SENSOR -> PLATFORM MATRIX
+    // ========================================================
+
+    for (int i = 0; i < 3; i++)
     {
-        for (int j = 0; j < 3; ++j)
-            frame_sens2plat_T[i][j] = frame_sens2plat[j][i];
+        for (int j = 0; j < 3; j++)
+        {
+            frame_sens2plat_T[i][j] =
+                frame_sens2plat[j][i];
+        }
     }
 
     // ========================================================
-    // YOUR EXISTING ERROR-VECTOR CALCULATIONS GO HERE
+    // Existing Error Vector Calculations
     // ========================================================
 
-    // error_vector_multiplier(...);
+    error_vector_multiplier(
+        xyz(0,0),
+        delaythta(0),
+        xyz(0,0)
+    );
 
     // ========================================================
-    // EXISTING UNIT-GAUSSIAN RNG
+    // Generate RNG Values for Output Noise
+    // and Angular Random Walk
     // ========================================================
 
     size = 3;
 
-    rn_norm_limits(&seed,&size,&random_noise[0]);
-    rn_norm_limits(&seed,&size,&random_walk_noise[0]);
+    rn_norm_limits(
+        &seed,
+        &size,
+        &random_noise[0]
+    );
+
+    rn_norm_limits(
+        &seed,
+        &size,
+        &random_walk_noise[0]
+    );
 
     // ========================================================
     // TEST-DERIVED AR RESIDUAL NOISE MODEL
     // ========================================================
 
-    double white_excitation = random_noise[1];
+    double white_excitation =
+        random_noise[1];
 
     double sensor_axis2_ar_noise =
-        model.noiseB * white_excitation;
+        noise_model_b
+        * white_excitation;
 
-    for (int k = 1; k <= model.noiseOrder; ++k)
+    for (int k = 1; k <= noise_model_order; k++)
     {
         sensor_axis2_ar_noise -=
-            model.noiseA[k]
+            noise_model_a[k]
             * noise_model_history[k - 1];
     }
 
-    sensor_axis2_ar_noise /= model.noiseA[0];
+    sensor_axis2_ar_noise /=
+        noise_model_a[0];
 
     // ========================================================
-    // UPDATE AR FILTER HISTORY
-    // Store AR residual only; do NOT store tones here.
+    // Update AR Filter Memory
     // ========================================================
 
-    if (model.noiseOrder > 0)
+    for (int k = noise_model_order - 1; k > 0; k--)
     {
-        for (int k = model.noiseOrder - 1; k > 0; --k)
-            noise_model_history[k] = noise_model_history[k - 1];
+        noise_model_history[k] =
+            noise_model_history[k - 1];
+    }
 
-        noise_model_history[0] = sensor_axis2_ar_noise;
+    if (noise_model_order > 0)
+    {
+        noise_model_history[0] =
+            sensor_axis2_ar_noise;
     }
 
     // ========================================================
-    // GENERATE EXPLICIT IDENTIFIED TONES
+    // GENERATE IDENTIFIED EXPLICIT TONES
     // ========================================================
 
-    const double two_pi =
-        6.283185307179586476925286766559;
-
     double sensor_time =
-        global_time - regime_start_time;
+        global_time;
 
     double sensor_axis2_tones = 0.0;
 
-    for (int j = 0; j < model.numberOfTones; ++j)
+    for (int j = 0; j < number_of_tones; j++)
     {
         sensor_axis2_tones +=
-            model.toneAmplitude[j]
+            tone_amplitude[j]
             * std::sin(
                 two_pi
-                * model.toneFrequency[j]
+                * tone_frequency[j]
                 * sensor_time
-                + model.tonePhase[j]);
+                + tone_phase[j]
+            );
     }
 
     // ========================================================
-    // COMPLETE IDENTIFIED DYNAMIC NOISE
+    // COMBINE AR RESIDUAL + EXPLICIT TONES
     // ========================================================
 
     double sensor_axis2_noise =
         sensor_axis2_ar_noise
         + sensor_axis2_tones;
 
+    // ========================================================
+    // Build SENSOR-FRAME Noise Vector
+    // ========================================================
+
     noise_sensor_frame[0] = 0.0;
     noise_sensor_frame[1] = sensor_axis2_noise;
     noise_sensor_frame[2] = 0.0;
 
     // ========================================================
-    // EXISTING SENSOR -> PLATFORM TRANSFORM
+    // Transform SENSOR-FRAME Noise -> PLATFORM FRAME
     // ========================================================
 
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 3; i++)
     {
         noise_platform_frame[i] = 0.0;
 
-        for (int j = 0; j < 3; ++j)
+        for (int j = 0; j < 3; j++)
         {
             noise_platform_frame[i] +=
                 frame_sens2plat_T[i][j]
@@ -298,14 +361,21 @@ void error_sensor()
         }
     }
 
-    for (int i = 0; i < 3; ++i)
-        noise[i] = noise_platform_frame[i];
-
     // ========================================================
-    // EXISTING ANGULAR RANDOM WALK REMAINS UNCHANGED
+    // Assign Test-Derived Platform-Frame Noise
     // ========================================================
 
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 3; i++)
+    {
+        noise[i] =
+            noise_platform_frame[i];
+    }
+
+    // ========================================================
+    // Angular Random Walk
+    // ========================================================
+
+    for (int i = 0; i < 3; i++)
     {
         random_walk[i] =
             random_walk_noise[i]
@@ -313,24 +383,25 @@ void error_sensor()
     }
 
     // ========================================================
-    // EXISTING DELTA-MEASUREMENT LOGIC REMAINS UNCHANGED
+    // Calculate Final Sensor Delta / Measurement
     // ========================================================
 
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 3; i++)
     {
         delta_noise[i] =
             noise[i]
             - internal_data.noise[i];
 
-        // Continue with your existing delta_measurement[i]
-        // calculation here.
-        //
-        // IMPORTANT ABOUT BIAS:
-        // model.bias is available from the CSV. If your
-        // existing sim already applies bias(i), do NOT also
-        // add model.bias unless you intend to replace that
-        // existing bias source with the test-derived bias.
+        delta_measurement[i] =
+            delaythta(i)
+            + bias(i)
+            + other_error_terms(i)
+            + delta_noise[i]
+            + random_walk[i];
+
+        internal_data.noise[i] =
+            noise[i];
     }
 
-    // Continue with the remainder of your existing function.
+    return;
 }
