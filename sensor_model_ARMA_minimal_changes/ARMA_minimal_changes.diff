@@ -1,0 +1,310 @@
+--- original/sensor_model_from_test_per_regime_csv(2).m
++++ updated/sensor_model_from_test_per_regime_ARMA_minimal.m
+@@ -9,7 +9,7 @@
+ %   tone phases
+ %   residual PSD
+ %   residual noise RMS
+-%   all-pole noise shaping model
++%   ARMA noise shaping model  % ARMA CHANGE: description
+ %
+ % Model:
+ %
+@@ -38,8 +38,9 @@
+ % Number of dominant tones to identify in each regime
+ nTones = [4 3 4];
+ 
+-% Order of AR/all-pole stochastic noise model
++% Order of AR denominator (existing setting)
+ noiseOrder = 10;
++noiseMAOrder = 4;                 % ARMA CHANGE M1: MA numerator order
+ 
+ %% ============================================================
+ % DOWNSAMPLE - NO ANTI-ALIAS FILTER
+@@ -176,16 +177,25 @@
+     noiseRMS   = sqrt(noisePower);
+ 
+     %% --------------------------------------------------------
+-    % 7. FIT ALL-POLE NOISE SHAPING MODEL
++    % 7. FIT ARMA NOISE SHAPING MODEL  % ARMA CHANGE: description
+     %
+-    % H(z) = noiseB / noiseA(z)
++    % H(z) = noiseB(z) / noiseA(z)
+     %
+     % Input to H(z) is unit-variance white Gaussian noise.
+     % ---------------------------------------------------------
+ 
+-    [aNoise,noiseVar] = arburg(residual,noiseOrder);
+-
+-    bNoise = sqrt(noiseVar);
++    % ARMA CHANGE M2 BEGIN: replaces arburg/aryule and scalar bNoise
++    model = armax(iddata(residual,[],1/Fs), ...
++        [noiseOrder noiseMAOrder], ...
++        armaxOptions('EnforceStability',true));
++
++    aNoise = model.A;
++    noiseVar = model.NoiseVariance;
++    bNoise = sqrt(noiseVar)*model.C;
++
++    assert(all(abs(roots(aNoise)) < 1), ...
++        'ARMA noise model must have all poles inside the unit circle.');
++    % ARMA CHANGE M2 END
+ 
+     %% --------------------------------------------------------
+     % 8. STORE MODEL
+@@ -232,7 +242,11 @@
+         'VariableNames', ...
+         {'Frequency_Hz','Amplitude','Phase_rad'}))
+ 
+-    fprintf('noiseB = %.12g\n',bNoise)
++    % ARMA CHANGE M3 BEGIN: display the complete numerator
++    fprintf('noiseB = [')
++    fprintf(' %.12g',bNoise)
++    fprintf(' ]\n')
++    % ARMA CHANGE M3 END
+ 
+     fprintf('noiseA = [')
+     fprintf(' %.12g',aNoise)
+@@ -286,8 +300,8 @@
+ %   sensor_model_regime_2.csv
+ %   ...
+ %
+-% One row is reserved for each A coefficient.  The tone arrays
+-% occupy the first NumTones rows and are padded with NaN below.
++% ARMA CHANGE: rows accommodate A, B, and tones independently.
++% Each array occupies its leading rows and is padded with NaN below.
+ % Scalar values are repeated down the rows so every CSV remains
+ % simple numeric data.
+ %
+@@ -299,6 +313,7 @@
+ %   tone_phase
+ %   noise_model_A
+ %   noise_model_B
++%   ma_order                 % ARMA CHANGE: appended eighth column
+ % ============================================================
+ 
+ outputDirectory = 'YOUR_DIRECTORY';
+@@ -312,30 +327,30 @@
+     model = sensorModel(i);
+ 
+     filter_order    = length(model.noiseA)-1;
++    ma_order        = length(model.noiseB)-1; % ARMA CHANGE M4
+     number_of_tones = length(model.toneFreq);
+ 
+-    nRows = length(model.noiseA);
+-
+-    if number_of_tones > nRows
+-        error('Regime %d has more tones than available CSV rows.',i);
+-    end
++    % ARMA CHANGE M4: replaces nRows and the old tone-count restriction
++    nRows = max([length(model.noiseA),length(model.noiseB),number_of_tones]);
+ 
+     tone_frequency = nan(nRows,1);
+     tone_amplitude = nan(nRows,1);
+     tone_phase     = nan(nRows,1);
+     noise_model_A  = nan(nRows,1);
++    noise_model_B  = nan(nRows,1); % ARMA CHANGE M4
+ 
+     tone_frequency(1:number_of_tones) = model.toneFreq(:);
+     tone_amplitude(1:number_of_tones) = model.toneAmp(:);
+     tone_phase(1:number_of_tones)     = model.tonePhase(:);
+     noise_model_A(1:length(model.noiseA)) = model.noiseA(:);
++    noise_model_B(1:length(model.noiseB)) = model.noiseB(:); % ARMA CHANGE M4
+ 
+     % Repeat scalar values down the file.  The C++ loader only
+     % needs the first row for these, but repetition keeps the CSV
+     % entirely numeric and easy to inspect manually.
+     filter_order_col    = repmat(filter_order,nRows,1);
+     number_of_tones_col = repmat(number_of_tones,nRows,1);
+-    noise_model_B       = repmat(model.noiseB,nRows,1);
++    ma_order_col        = repmat(ma_order,nRows,1); % ARMA CHANGE M4: replaces scalar-B repetition
+ 
+     T = table( ...
+         filter_order_col, ...
+@@ -345,6 +360,7 @@
+         tone_phase, ...
+         noise_model_A, ...
+         noise_model_B, ...
++        ma_order_col, ... % ARMA CHANGE M5: append column 8
+         'VariableNames',{ ...
+         'filter_order', ...
+         'number_of_tones', ...
+@@ -352,7 +368,8 @@
+         'tone_amplitude', ...
+         'tone_phase', ...
+         'noise_model_A', ...
+-        'noise_model_B'});
++        'noise_model_B', ...
++        'ma_order'}); % ARMA CHANGE M5: column 8 header
+ 
+     csvName = sprintf('sensor_model_regime_%d.csv',i);
+     csvPath = fullfile(outputDirectory,csvName);
+--- original/model_c_csv_loader(1).cpp
++++ updated/model_c_csv_loader_ARMA_minimal.cpp
+@@ -15,14 +15,16 @@
+ // Each CSV contains ONE regime and has these columns:
+ //
+ // filter_order, number_of_tones, tone_frequency,
+-// tone_amplitude, tone_phase, noise_model_A, noise_model_B
++// tone_amplitude, tone_phase, noise_model_A, noise_model_B, ma_order
+ //
+-// Rows are padded to length(noise_model_A) = filter_order + 1.
++// ARMA CHANGE: first seven columns retain their original positions.
++// Rows accommodate A, B, and tones; unused cells are padding.
+ // ============================================================
+ 
+ struct SensorNoiseModel
+ {
+     int filter_order = 0;
++    int ma_order = 0; // ARMA CHANGE C1: numerator order
+     int number_of_tones = 0;
+ 
+     std::vector<double> tone_frequency;
+@@ -30,7 +32,7 @@
+     std::vector<double> tone_phase;
+     std::vector<double> noise_model_A;
+ 
+-    double noise_model_B = 0.0;
++    std::vector<double> noise_model_B; // ARMA CHANGE C1: was scalar
+ };
+ 
+ // ============================================================
+@@ -83,9 +85,9 @@
+ 
+         std::vector<std::string> field = split_csv(line);
+ 
+-        if (field.size() < 7)
++        if (field.size() < 8) // ARMA CHANGE C2: appended ma_order
+             throw std::runtime_error(
+-                "Sensor model CSV has an invalid row.");
++                "ARMA CSV requires 8 columns; regenerate it with the ARMA exporter.");
+ 
+         // Scalars are repeated down the CSV, but only the first
+         // row is needed to initialize them.
+@@ -93,12 +95,19 @@
+         {
+             model.filter_order = std::stoi(field[0]);
+             model.number_of_tones = std::stoi(field[1]);
+-            model.noise_model_B = std::stod(field[6]);
++            model.ma_order = std::stoi(field[7]); // ARMA CHANGE C2
++            if (model.filter_order < 0 || model.ma_order < 0 ||
++                model.number_of_tones < 0)
++                throw std::runtime_error("CSV orders/counts must be nonnegative.");
+         }
+ 
+-        // noise_model_A is valid on every row.
+-        model.noise_model_A.push_back(
+-            std::stod(field[5]));
++        // ARMA CHANGE C3 BEGIN: read only valid coefficient rows
++        if (row <= model.filter_order)
++            model.noise_model_A.push_back(std::stod(field[5]));
++
++        if (row <= model.ma_order)
++            model.noise_model_B.push_back(std::stod(field[6]));
++        // ARMA CHANGE C3 END
+ 
+         // Tone values occupy only the first number_of_tones rows.
+         // Remaining tone cells are NaN padding and are ignored.
+@@ -123,6 +132,23 @@
+         throw std::runtime_error(
+             "noise_model_A length does not match filter_order + 1.");
+     }
++
++    // ARMA CHANGE C4 BEGIN: validate numerator and usable coefficients
++    if (static_cast<int>(model.noise_model_B.size()) != model.ma_order + 1)
++        throw std::runtime_error(
++            "noise_model_B length does not match ma_order + 1.");
++
++    for (double value : model.noise_model_A)
++        if (!std::isfinite(value))
++            throw std::runtime_error("noise_model_A contains a nonfinite coefficient.");
++
++    for (double value : model.noise_model_B)
++        if (!std::isfinite(value))
++            throw std::runtime_error("noise_model_B contains a nonfinite coefficient.");
++
++    if (model.noise_model_A[0] == 0.0)
++        throw std::runtime_error("noise_model_A[0] must be nonzero.");
++    // ARMA CHANGE C4 END
+ 
+     if (static_cast<int>(model.tone_frequency.size())
+         != model.number_of_tones)
+@@ -195,8 +221,13 @@
+     const std::vector<double>& noise_model_a =
+         sensor_model.noise_model_A;
+ 
+-    const double noise_model_b =
++    // ARMA CHANGE C5 BEGIN: keep noise_model_b, now as a vector
++    const std::vector<double>& noise_model_b =
+         sensor_model.noise_model_B;
++
++    const int noise_model_ma_order =
++        sensor_model.ma_order;
++    // ARMA CHANGE C5 END
+ 
+     const std::vector<double>& tone_frequency =
+         sensor_model.tone_frequency;
+@@ -220,6 +251,12 @@
+     static std::vector<double> noise_model_history(
+         sensor_model.filter_order,
+         0.0);
++
++    // ARMA CHANGE C6 BEGIN: previous unscaled white-noise inputs
++    static std::vector<double> noise_model_input_history(
++        sensor_model.ma_order,
++        0.0);
++    // ARMA CHANGE C6 END
+ 
+     // ========================================================
+     // SENSOR -> PLATFORM TRANSFORMATION MATRIX
+@@ -278,9 +315,18 @@
+     double white_excitation =
+         random_noise[1];
+ 
++    // ARMA CHANGE C7 BEGIN: numerator includes current and previous inputs
+     double sensor_axis2_ar_noise =
+-        noise_model_b
++        noise_model_b[0]
+         * white_excitation;
++
++    for (int k = 1; k <= noise_model_ma_order; k++)
++    {
++        sensor_axis2_ar_noise +=
++            noise_model_b[k]
++            * noise_model_input_history[k - 1];
++    }
++    // ARMA CHANGE C7 END
+ 
+     for (int k = 1; k <= noise_model_order; k++)
+     {
+@@ -307,6 +353,19 @@
+         noise_model_history[0] =
+             sensor_axis2_ar_noise;
+     }
++
++    // ARMA CHANGE C8 BEGIN: update input memory after computing this output
++    for (int k = noise_model_ma_order - 1; k > 0; k--)
++    {
++        noise_model_input_history[k] =
++            noise_model_input_history[k - 1];
++    }
++
++    if (noise_model_ma_order > 0)
++    {
++        noise_model_input_history[0] = white_excitation;
++    }
++    // ARMA CHANGE C8 END
+ 
+     // ========================================================
+     // GENERATE IDENTIFIED EXPLICIT TONES
+--- original/Model_Correlation_v3.txt
++++ updated/Model_Correlation_ARMA_minimal.m
+@@ -35,7 +35,8 @@
+ %% BUILD 500 INDEPENDENT AR + TONE REALIZATIONS
+ % Each matrix column is one independent realization. Using one seeded random
+ % stream is statistically correct and avoids repeatedly resetting the RNG.
+-burnIn = max(10*(length(model.noiseA)-1),round(5*Fs));
++% ARMA CHANGE V1: allow either polynomial to set the startup-memory length
++burnIn = max(10*(max(length(model.noiseA),length(model.noiseB))-1),round(5*Fs));
+ w = randn(N+burnIn,nRealizations);
+ arTemp = filter(model.noiseB,model.noiseA,w);
+ arNoise = arTemp(burnIn+1:end,:);
