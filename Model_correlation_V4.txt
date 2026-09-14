@@ -1,0 +1,107 @@
+MINIMAL EDITS: AMPLITUDE DISTRIBUTION COMPARISON
+
+Works with Burg/Yule-Walker AR (scalar noiseB) and ARMA (vector noiseB).
+Use whichever sensorModel you identified; no method switch or refit is needed.
+The existing filter(model.noiseB,model.noiseA,w) call already supports both.
+
+1. Replace this existing line:
+
+burnIn = max(10*(length(model.noiseA)-1),round(5*Fs));
+
+With:
+
+% AMPLITUDE CHANGE 1: include MA memory; scalar noiseB still works for AR.
+burnIn = max(10*(max(length(model.noiseA),length(model.noiseB))-1),round(5*Fs));
+
+This retains your burn-in heuristic and includes numerator memory. It does
+not guarantee full settling for poles very close to the unit circle.
+
+2. Append the block below after the final disp(toneMetrics):
+
+%% AMPLITUDE CHANGE 2: TEST RESIDUAL VS AR / ARMA AMPLITUDE DISTRIBUTIONS
+% Append this section after disp(toneMetrics).
+% Uses existing residual, arNoise, residualRMS, arRMS, cTest, and cModel.
+% Pool samples across realizations; do NOT average the time histories.
+% With equal-length records and common bins, pooling is equivalent to
+% averaging their PDF histograms. No additional noise is generated here.
+% The standardized view changes plotting copies only, not the model gain.
+
+ampBins = 60; % Fewer bins give a smoother estimate from the single test record.
+figure('Name','Residual Amplitude Distributions - AR / ARMA');
+tiledlayout(1,2);
+
+for ampView = 1:2
+    nexttile;
+    if ampView == 1
+        ampTest = residual(:);
+        ampModel = arNoise(:);
+        ampLabel = 'Residual amplitude [sensor units]';
+        ampTitle = 'Original amplitude: scale + shape';
+    else
+        if ~isfinite(residualRMS) || ~isfinite(arRMS) || ...
+                residualRMS <= 0 || arRMS <= 0
+            axis off;
+            text(0.5,0.5,'Shape comparison requires positive, finite RMS.', ...
+                'Units','normalized','HorizontalAlignment','center');
+            continue;
+        end
+        ampTest = residual(:)/residualRMS;
+        ampModel = arNoise(:)/arRMS;
+        ampLabel = 'Residual amplitude / own RMS';
+        ampTitle = 'Unit RMS: distribution shape';
+    end
+
+    % Use identical bin edges for test and model; include all sample values.
+    ampLimit = max([max(abs(ampTest)),max(abs(ampModel))]);
+    if ampLimit == 0
+        ampLimit = 1; % Keep histogram edges valid for an all-zero signal.
+    end
+    ampEdges = linspace(-ampLimit,ampLimit,ampBins+1);
+
+    histogram(ampTest,ampEdges,'Normalization','pdf', ...
+        'DisplayStyle','stairs','EdgeColor',cTest,'LineWidth',2);
+    hold on;
+    histogram(ampModel,ampEdges,'Normalization','pdf', ...
+        'DisplayStyle','stairs','EdgeColor',cModel,'LineWidth',2);
+    grid on; xlim([-ampLimit ampLimit]);
+    xlabel(ampLabel); ylabel('Probability density');
+    title(ampTitle);
+    legend('Test residual',sprintf('Model: %d realizations pooled', ...
+        nRealizations),'Location','best');
+end
+% END AMPLITUDE CHANGE 2
+
+HOW TO READ THE NEW FIGURE
+
+Blue = test residual; green = generated stochastic residual, with all
+realizations pooled. Bias and explicit tones are excluded in both views.
+
+Left: original amplitude units. A narrower model distribution is consistent
+with lower model RMS; compare the existing printed RMS values to confirm.
+PDF normalization adjusts the histogram area, not the signal amplitudes.
+Both curves integrate to one, despite different sample counts.
+
+Right: each signal divided by its own RMS (one pooled ensemble RMS for the
+model). This isolates distribution shape from the overall amplitude mismatch.
+These are plotting copies only; the model and existing validation values are
+not rescaled. If the right panel agrees while the left does not, overall
+amplitude scaling is a candidate issue, but PSD/ACF may still differ.
+
+If differences remain in the standardized panel, examine asymmetry and tails.
+The single test record naturally gives a noisier histogram than 500 pooled
+realizations. Do not interpret each differing bin or observed extreme as a
+model failure. These amplitude plots do not assess temporal clustering.
+Adjust ampBins if the single-record histogram is too jagged.
+
+The complete script has only the burn-in replacement and this appended block.
+Existing variables, computations, figure layout, and AR labels remain intact;
+those existing AR labels also refer to ARMA when ARMA coefficients are loaded.
+No CSV, identification, or simulator changes are needed for these plots.
+
+VERIFICATION
+
+Source comparison confirmed the original script is otherwise unchanged.
+Histogram options were checked against MathWorks documentation:
+https://www.mathworks.com/help/matlab/ref/matlab.graphics.chart.primitive.histogram.html
+MATLAB is unavailable here, so the updated script has not been executed in
+MATLAB or against your sensor measurements.
