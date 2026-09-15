@@ -1,0 +1,228 @@
+Yes. If you want to test a tone-only architecture, you can remove the AR/ARMA stochastic filter entirely. Your model becomes
+
+e(t)=b+\sum_{j=1}^{N_t} A_j\sin(2\pi f_jt+\phi_j).
+
+The MATLAB identification can stay very close to your existing code: downsample → remove bias → FFT to identify frequencies → least-squares fit amplitude/phase. Then in C++, you only need to hard-code the identified parameters and evaluate the sinusoids at simulation time.
+
+1. Minimal MATLAB tone-identification script
+
+This is essentially your existing identification code with everything after the tone fit removed.
+
+%% ============================================================
+% SIMPLE SENSOR TONE MODEL IDENTIFICATION
+%
+% Model:
+%
+% error(t) = bias + sum_j A_j*sin(2*pi*f_j*t + phi_j)
+% ============================================================
+clear; clc; close all;
+%% USER INPUTS
+xTest = YOUR_DATA(:);
+Fs_in = 1000;             % Original sample rate [Hz]
+Fs    = 80;               % Model sample rate [Hz]
+baseline = 0;
+% Original-data regime indices
+ts = [1      30001  60001];
+te = [30000  60000  90000];
+% Number of tones to retain per regime
+nTones = [4 3 4];
+%% DOWNSAMPLE
+ratio = Fs_in/Fs;
+keepIdx = unique(round(1:ratio:length(xTest)));
+x_ds = xTest(keepIdx);
+%% MAP REGIMES
+numRegimes = length(ts);
+ts_ds = zeros(size(ts));
+te_ds = zeros(size(te));
+for i = 1:numRegimes
+    ts_ds(i) = find(keepIdx >= ts(i),1,'first');
+    te_ds(i) = find(keepIdx <= te(i),1,'last');
+end
+%% IDENTIFY TONES
+toneModel = struct;
+for i = 1:numRegimes
+    xr = x_ds(ts_ds(i):te_ds(i));
+    L = length(xr);
+    t = (0:L-1)'/Fs;
+    % ---------------------------------------------------------
+    % 1. Bias
+    % ---------------------------------------------------------
+    bias = mean(xr) - baseline;
+    x0 = xr - mean(xr);
+    % ---------------------------------------------------------
+    % 2. FFT
+    % ---------------------------------------------------------
+    Y = fft(x0);
+    P = abs(Y/L);
+    P = P(1:floor(L/2)+1);
+    if rem(L,2) == 0
+        P(2:end-1) = 2*P(2:end-1);
+    else
+        P(2:end) = 2*P(2:end);
+    end
+    f_fft = (0:floor(L/2))' * Fs/L;
+    % ---------------------------------------------------------
+    % 3. Find dominant tone frequencies
+    % ---------------------------------------------------------
+    Psearch = P;
+    Psearch(1) = 0;       % Do not select DC
+    [~,peakLoc] = findpeaks( ...
+        Psearch, ...
+        'SortStr','descend');
+    n = min(nTones(i),length(peakLoc));
+    peakLoc = peakLoc(1:n);
+    toneFreq = sort(f_fft(peakLoc));
+    % ---------------------------------------------------------
+    % 4. Fit amplitude + phase
+    % ---------------------------------------------------------
+    H = zeros(L,2*n);
+    for j = 1:n
+        H(:,2*j-1) = sin(2*pi*toneFreq(j)*t);
+        H(:,2*j)   = cos(2*pi*toneFreq(j)*t);
+    end
+    beta = H\x0;
+    fittedTone = H*beta;
+    toneAmp   = zeros(n,1);
+    tonePhase = zeros(n,1);
+    for j = 1:n
+        a = beta(2*j-1);
+        b = beta(2*j);
+        toneAmp(j)   = hypot(a,b);
+        tonePhase(j) = atan2(b,a);
+    end
+    % ---------------------------------------------------------
+    % 5. Store model
+    % ---------------------------------------------------------
+    toneModel(i).bias      = bias;
+    toneModel(i).toneFreq  = toneFreq;
+    toneModel(i).toneAmp   = toneAmp;
+    toneModel(i).tonePhase = tonePhase;
+    % ---------------------------------------------------------
+    % Display parameters for C++ implementation
+    % ---------------------------------------------------------
+    fprintf('\n============================\n')
+    fprintf('REGIME %d\n',i)
+    fprintf('============================\n')
+    fprintf('Bias = %.12g\n\n',bias)
+    disp(table( ...
+        toneFreq, ...
+        toneAmp, ...
+        tonePhase, ...
+        'VariableNames', ...
+        {'Frequency_Hz','Amplitude','Phase_rad'}))
+    % ---------------------------------------------------------
+    % Quick validation
+    % ---------------------------------------------------------
+    reconstructed = bias + fittedTone;
+    figure
+    plot(t,xr,'LineWidth',2)
+    hold on
+    plot(t,reconstructed,'LineWidth',2)
+    grid on
+    xlabel('Time [s]')
+    ylabel('Sensor Output')
+    legend('Test','Tone Model')
+    title(sprintf('Regime %d - Tone Model',i))
+end
+
+That gives you exactly the parameters needed by the simulation:
+
+bias
+toneFreq(1)
+toneAmp(1)
+tonePhase(1)
+toneFreq(2)
+toneAmp(2)
+tonePhase(2)
+...
+
+No AR coefficients, no filter history, no Gaussian RNG, and no CSV is inherently necessary.
+
+⸻
+
+2. Minimal C++ implementation
+
+Suppose MATLAB gives you three tones for the regime you want:
+
+f1, A1, phi1
+f2, A2, phi2
+f3, A3, phi3
+
+Then the C++ implementation can be essentially this:
+
+const double pi = 3.14159265358979323846;
+const int number_of_tones = 3;
+const double tone_frequency[number_of_tones] = {
+    FREQ_1,
+    FREQ_2,
+    FREQ_3
+};
+const double tone_amplitude[number_of_tones] = {
+    AMP_1,
+    AMP_2,
+    AMP_3
+};
+const double tone_phase[number_of_tones] = {
+    PHASE_1,
+    PHASE_2,
+    PHASE_3
+};
+const double bias = BIAS_VALUE;
+/* Generate sensor error */
+double sensor_error = bias;
+for (int j = 0; j < number_of_tones; ++j)
+{
+    sensor_error +=
+        tone_amplitude[j] *
+        sin(2.0*pi*tone_frequency[j]*global_time +
+            tone_phase[j]);
+}
+
+Then inject sensor_error in the same location where your existing sensor model error is applied.
+
+There is no filter state anymore. Every time step simply evaluates
+
+A_j\sin(2\pi f_jt+\phi_j)
+
+using the current simulation time.
+
+What disappears from your current C++ implementation
+
+You can therefore remove the entire stochastic-filter path:
+
+randn()
+white_excitation
+noise_model_A
+noise_model_B
+noise_output_history
+noise_input_history
+AR/ARMA recurrence
+burn-in
+CSV coefficient loading
+
+You retain only:
+
+simulation time
+       |
+       v
+A1*sin(2*pi*f1*t + phi1)
+A2*sin(2*pi*f2*t + phi2)
+...
+       |
+       v
+sum tones + bias
+       |
+       v
+inject sensor error
+
+One thing I would not remove automatically is your existing frame transformation/injection logic. The tone model should replace the generation of the sensor error, while whatever downstream code puts that scalar/vector error into the appropriate sensor/platform frame can remain unchanged.
+
+Also, your earlier full model was intentionally
+
+\text{bias}+\text{tones}+\text{colored stochastic residual}.
+
+This simplified version is
+
+\text{bias}+\text{tones}.
+
+So this is a useful baseline/trade study, but you’re deliberately throwing away all of the measured broadband stochastic residual. If the objective is specifically “How much of the behavior can I reproduce using just the dominant deterministic spectral components?”, this is exactly the simple architecture I would test first.
