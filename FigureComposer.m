@@ -1,86 +1,79 @@
-%% FIGURE COMPOSER - edit this section, then run the whole file (MATLAB R2020a+).
-% Copies graphics from existing .fig files; no raw data or replots required.
-% Supports Cartesian axes, subplot/tiledlayout, lines, patches, scatter and
-% common charts/groups. Layout, labels, view and formatting come from BASE.
-% Source/base must use the same units, coordinate frame and time reference.
-% yyaxis, polar/geographic axes and standalone charts are outside this scope.
-% copyobj does not preserve callbacks, app data or custom data-tip templates.
-% Processing stays invisible. Reopen with openfig('Combined.fig','visible').
+%% FIGURE COMPOSER - MATLAB R2021b, based on YOUR pasted script.
+% [CHANGE 1 BEGIN] Replace the original setup above the Implementation section.
+% First test: run RUN_DEMO. It creates all example .fig files automatically.
+% For your own figures: change ONLY the paths, filenames and mappings below.
+packageDir = fileparts(mfilename('fullpath'));
+baseDir = fullfile(packageDir,'demo_base');
+source = fullfile(packageDir,'demo_source');
+output = fullfile(packageDir,'demo_output');
 
-% REQUIRED INPUTS: SourceMap mode uses ONE base .fig and any source .fig files.
-% To use the original pair/batch mode, set SourceMap={} below and specify
-% either two directories or two individual .fig paths for source/base.
-source = 'C:\Results\MonteCarlo'; % Convenience folder for paths in SourceMap.
-base   = 'C:\Results\Nominal\Velocity.fig'; % Existing destination layout/content.
-output = 'C:\Results\Combined';    % Output directory; originals are preserved.
+% For real data, replace the three folder assignments, for example:
+% baseDir='C:\Results\Nominal'; source='C:\Results\MonteCarlo';
+% output='C:\Results\Combined';
+o=struct();
+o.FileMap={}; o.AxesMap={};
+o.AxesBy='Tile';                    % NEW: actual tiledlayout anchor numbers.
+% For ordinary subplot() figures use 'Title' or 'Tag' and matching text keys.
+% Tile numbers are local to a layout; repeated numbers across multiple layouts
+% require unique titles/tags. No reliance on the order returned by findall.
+o.SelectBy='Tag';
+o.Include={}; o.Exclude={};         % Copy all supported plot objects.
+% Optional: o.Include={'MonteCarlo'}; (the source graphics must have that Tag).
+% Alternatively: o.SelectBy='DisplayName'; o.Include={'Modified Y'};
+o.Style=struct('DisplayName','Monte Carlo'); % One MC legend entry per axes.
+% Use struct() to retain source names. Other supported style overrides:
+% o.Style.LineWidth=1.5; o.Style.LineStyle='--';
+% o.Style.EdgeAlpha=0.12;            % Patch-edge transparency only.
+% o.Style.FaceAlpha=0.12;            % Filled-patch transparency only.
+o.Layer='bottom';                  % Keep nominal curves above the MC cloud.
+o.Limits='base';                   % 'auto' expands limits to include all data.
+o.Legend='update';                 % 'keep' preserves the base legend entries.
+% [CHANGE 7A NEW] Enable PNG output alongside each .fig.
+o.Overwrite=true; o.PNG=true;
 
-% MANY SOURCES -> ONE BASE: each row = {source .fig path, source axes, base axes}.
-% Axes keys are Tags (or Titles if AxesBy='Title'). '' automatically selects
-% the only axes in a figure; if it has several axes, give the desired key.
-% Source and base can have different numbers/arrangements of subplots.
-% Repeat a base axes key to overlay multiple datasets onto that same tile.
-% Paths may be full paths or relative to MATLAB's current folder.
-o.SourceMap = {
-    fullfile(source,'VelocityX.fig'),   '', 'VelocityX'
-    fullfile(source,'VelocityY.fig'),   '', 'VelocityY'
-    fullfile(source,'VelocityZ.fig'),   '', 'VelocityZ'
-    fullfile(source,'VelocityRSS.fig'), '', 'VelocityRSS'
+% Each row: {SOURCE FIGURE, SOURCE AXES KEY, DESTINATION AXES KEY}.
+% '' selects the only axes in a figure, regardless of title/tag/layout.
+% The source and destination titles/labels DO NOT have to match.
+% VELOCITY: 3-by-2, row-major layout. Right-hand axes spans [3 1], starts at 2.
+o.SourceMap={
+    fullfile(source,'VelocityX.fig'),   '', 1
+    fullfile(source,'VelocityY.fig'),   '', 3
+    fullfile(source,'VelocityZ.fig'),   '', 5
+    fullfile(source,'VelocityRSS.fig'), '', 2
 };
-% Set o.SourceMap={} to return to the original directory/file-pair workflow.
-% OPTIONAL fourth column: a struct overriding settings for THAT ROW only.
-% All rows must then have four columns; use struct() to inherit all defaults.
-% Allowed overrides: SelectBy, Include, Exclude, Style, Layer.
-% Example: add this fourth entry to one row to copy MC patches behind curves:
-% struct('SelectBy','Tag','Include',{{'MonteCarlo'}},'Exclude',{{}},'Layer','bottom')
-% Example for a thicker dashed line (Style replaces the global Style struct):
-% struct('Include',{{'Modified Y'}},'Style',struct('LineStyle','--','LineWidth',1.5))
+composeFigures(source,fullfile(baseDir,'Velocity.fig'),output,o);
 
-% DIRECTORY MODE: {} matches common filenames. Or specify only these pairs:
-% {'MCVelocity.fig','Velocity.fig'; 'MCTrajectory.fig','Trajectory.fig'}
-% Columns = source filename, base filename. Output uses the BASE filename.
-o.FileMap = {};
+% TRAJECTORY: three vertical tiles, top-to-bottom.
+o.SourceMap={
+    fullfile(source,'TrajectoryX.fig'), '', 1
+    fullfile(source,'TrajectoryY.fig'), '', 2
+    fullfile(source,'TrajectoryZ.fig'), '', 3
+};
+composeFigures(source,fullfile(baseDir,'Trajectory.fig'),output,o);
 
-% AXES MATCHING: 'Tag' recommended; 'Title' for older, untagged figures.
-% Matching keys must be unique/nonempty. A single axes needs no key.
-% Example when plotting: axX.Tag='VelocityX'; axRSS.Tag='VelocityRSS';
-% Existing figures need no tags if their titles uniquely identify the axes:
-% choose 'Title', then use the exact title text in SourceMap/AxesMap.
-o.AxesBy = 'Tag';
-% {} matches equal keys. Explicit mappings can rename/select particular axes:
-% {'MC_X','VelocityX'; 'MC_Y','VelocityY'; 'MC_RSS','VelocityRSS'}
-% Columns = source key, base key (Tag or Title, according to AxesBy).
-% FileMap and AxesMap are only used when SourceMap is empty.
-o.AxesMap = {};
+% FUEL: a single ordinary axes, not even a tiledlayout.
+o.SourceMap={fullfile(source,'Fuel.fig'), '', ''};
+composeFigures(source,fullfile(baseDir,'Fuel.fig'),output,o);
 
-% OBJECT SELECTION: exact, case-sensitive Tag OR DisplayName of plot objects.
-% Selects direct axes children; tag the GROUP to copy a grouped dataset.
-% Example: plot(ax,t,y,'Tag','ModifiedY','DisplayName','Modified Y');
-% Example: h=patch(...); h.Tag='MonteCarlo'; (tag every MC patch/group).
-o.SelectBy = 'DisplayName';        % 'Tag' or 'DisplayName'.
-o.Include = {};                   % {} = all; {'Modified Y'} = only that data.
-o.Exclude = {'Baseline'};         % Exclude wins; avoids a second baseline.
-% MC preset: SelectBy='Tag'; Include={'MonteCarlo'}; Exclude={}; Layer='bottom'.
-% Nothing is automatically deduplicated by name (many MC objects share a tag).
-
-% STYLE OVERRIDES: applied ONLY to copies; struct() preserves source styles.
-o.Style = struct();
-% o.Style = struct('LineStyle','--','LineWidth',1.5,'Color',[0.8 0.2 0.1]);
-% MC patches: struct('EdgeColor',[0.5 0.5 0.5],'EdgeAlpha',0.12);
-% Filled bands: struct('FaceColor',[0.5 0.5 0.5],'FaceAlpha',0.12);
-% Unsupported properties are ignored; invalid values fail that figure.
-% Group descendants receive overrides too. Use RGB Color (not RGBA).
-
-o.Layer = 'top';                  % 'bottom' keeps base curves above MC clouds.
-o.Limits = 'base';                % 'base' fixes base limits; 'auto' fits all data.
-o.Legend = 'update';              % 'keep' preserves base entries; 'update' below.
-% 'update' rebuilds from named plots, base first; unnamed/legend-hidden plots
-% are omitted. Repeated names get one entry (useful for Monte Carlo clouds).
-% Use 'keep' for custom legend labels or a manually curated/shared legend.
-o.Overwrite = true;               % Re-running replaces output, not input.
-o.PNG = false;                    % Optional 200-dpi PNG beside each .fig.
-% For hundreds of runs, build SourceMap/base/output inside your run-ID loop,
-% then call composeFigures there. Output uses the base .fig filename.
-composeFigures(source,base,output,o);
+% Remove an entire job block to skip that figure. Output uses each base name.
+% Add rows with the same destination key to overlay more datasets on a tile.
+% Optional FOURTH column: row overrides (all rows then need four entries).
+% Use struct() to inherit defaults; allowed fields: SelectBy, Include,
+% Exclude, Style, Layer. Example row override:
+% struct('Style',struct('DisplayName','Case B','LineWidth',1.5))
+% Style replaces the global Style struct for that row.
+%
+% Legacy pair/directory mode: replace all job blocks above with:
+% o.SourceMap={}; o.AxesBy='Tag';
+% composeFigures(source,baseDir,output,o);
+% Optional FileMap={'SourceName.fig','BaseName.fig'};
+% Optional AxesMap={'SourceTag','DestinationTag'};
+%
+% Scope: Cartesian axes, lines/patches/scatter/common charts and groups.
+% Select groups by their root Tag/DisplayName. No raw-data transformation.
+% Same units, frame and time reference are required. No yyaxis/polar/geoaxes.
+% Saved figures are invisible: use openfig(filename,'visible') to view them.
+% [CHANGE 1 END]
 
 %% Implementation - no edits normally needed below this line.
 function composeFigures(source,base,output,o)
@@ -146,7 +139,8 @@ function composeFigures(source,base,output,o)
             fprintf('Saved %s (%d objects copied)\n',outputs(k),n);
             saved = saved+1;
         catch ME
-            warning('Composer:Failed','%s: %s',bases(k),ME.message);
+            % [CHANGE 2] Stop at the actual error; do not hide it behind 0/1 saved.
+            rethrow(ME);
         end
     end
     fprintf('Completed: %d/%d figures saved.\n',saved,numel(bases));
@@ -257,23 +251,41 @@ function copied = copyPlotObjects(from,ax,o)
 end
 
 function saveOutput(fig,output,o)
+    % [CHANGE 7B NEW BEGIN] Fit each Y axis to all plotted data before saving.
+    % Comment out this line to retain base Y limits; 'padded' adds a margin.
+    set(findall(fig,'Type','axes'),'YLimMode','auto','YLimitMethod','tight');
+    % [CHANGE 7B NEW END] X/Z limits stay as configured; applies to FIG and PNG.
     savefig(fig,output);
     if o.PNG
         [folder,name] = fileparts(output);
         png=fullfile(folder,name+".png");
         try
             assert(o.Overwrite || ~isfile(png),'PNG output already exists.');
-            exportgraphics(fig,png,'Resolution',200);
+            % [CHANGE 3 BEGIN] Whole-figure PNG path for MATLAB R2021b.
+            set(fig,'PaperPositionMode','auto');
+            print(fig,char(png),'-dpng','-r200');
+            % [CHANGE 3 END]
         catch ME
             warning('Composer:PNG','FIG saved, but PNG export failed: %s',ME.message);
         end
     end
 end
 
+% [CHANGE 4 BEGIN] Replace the entire original axesKey function.
 function key = axesKey(ax,by)
-    if strcmp(by,'Tag'), key=string(ax.Tag);
-    else, key=strjoin(string(ax.Title.String)," "); end
+    switch by
+        case 'Tag'
+            key=string(ax.Tag);
+        case 'Title'
+            key=strjoin(string(ax.Title.String)," ");
+        case 'Tile'
+            key="";
+            if isa(ax.Parent,'matlab.graphics.layout.TiledChartLayout')
+                key=string(ax.Layout.Tile);
+            end
+    end
 end
+% [CHANGE 4 END]
 
 function ax = uniqueAxis(axesList,key,by)
     if strlength(key)==0
@@ -286,7 +298,8 @@ function ax = uniqueAxis(axesList,key,by)
 end
 
 function o = normalizeOptions(o)
-    o.AxesBy=validatestring(o.AxesBy,{'Tag','Title'});
+    % [CHANGE 5] Tile must be accepted here as well as implemented in axesKey.
+    o.AxesBy=validatestring(o.AxesBy,{'Tag','Title','Tile'});
     o.SelectBy=validatestring(o.SelectBy,{'Tag','DisplayName'});
     o.Layer=validatestring(o.Layer,{'top','bottom'});
     o.Limits=validatestring(o.Limits,{'base','auto'});
@@ -317,6 +330,12 @@ function styleObjects(root,style)
             if isprop(objects(i),props{j}), set(objects(i),props{j},style.(props{j})); end
         end
     end
+    % [CHANGE 6 BEGIN] Explicit labels opt copied objects into the legend.
+    if isfield(style,'DisplayName') && strlength(string(style.DisplayName))>0 && ...
+            isprop(root,'DisplayName') && isprop(root,'Annotation')
+        root.Annotation.LegendInformation.IconDisplayStyle='on';
+    end
+    % [CHANGE 6 END]
 end
 
 function updateLegend(ax,objects)
