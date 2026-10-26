@@ -1,9 +1,10 @@
-%% Accelerometer bias in the PLT frame, reported in micro-g (ug)
+%% Accelerometer error histories and XYZ histograms in micro-g (ug)
 % Standalone MATLAB R2021b script. No additional toolboxes are needed.
 % Default input: instantaneous acceleration in ft/s^2, NOT gyro data.
-% Estimate on a settled interval with constant known true input/orientation.
-% Use native-rate samples; downsampling is unnecessary for this bias estimate.
-% Output: Results_PLT (only XYZ bias), plus numeric row vector bias_PLT_ug.
+% Use an interval with known true input/orientation; retain anomalous switching.
+% Use native-rate samples. Subtract only the known baseline, NOT the data mean.
+% Outputs: Results_sensor/Results_PLT (sample histories), HistogramResults.
+% Histograms describe level occupancy, not switching order or dwell times.
 
 %% 1. EDIT INPUTS
 T = YourIMUTable;                    % Imported table; EDIT name and columns
@@ -22,7 +23,7 @@ inputMode = 'instantaneous_ft_s2';    % RECOMMENDED
 % The integral mode requires cumulative VELOCITY units cm/s, NOT cm/s^2.
 % Running averages, sliding sums and counter-wrap formats need other decoding.
 
-window_s = [NaN NaN];                % EDIT: [startTime endTime], in time_s units
+window_s = [NaN NaN];                % EDIT: [start end]; include low AND high states
 baseline_sensor_ms2 = [NaN NaN NaN];  % EDIT: known true XYZ input [m/s^2]
 % Use [0 0 0] only for a genuinely zero-input/gravity-compensated signal.
 % A stationary raw accelerometer generally contains gravity. Include its actual
@@ -33,7 +34,7 @@ R_sensor_to_PLT = eye(3);             % EDIT: fixed orthonormal 3x3 transform
 % Column-vector convention: v_PLT = R_sensor_to_PLT * v_sensor.
 
 % Optional known rail bounds. Rows are sensor X/Y/Z; columns are [lower upper].
-% Values ON or outside a bound are invalid. Set bounds before a rail if needed.
+% Values ON or outside a bound are flagged. Set bounds before a rail if needed.
 rawLimits = [-Inf Inf; -Inf Inf; -Inf Inf]; % In selected table columns' units
 accelLimits_ms2 = [-Inf Inf; -Inf Inf; -Inf Inf]; % Physical acceleration limits
 % Raw limits can flag a clipped accumulator even when its difference is zero.
@@ -42,9 +43,12 @@ accelLimits_ms2 = [-Inf Inf; -Inf Inf; -Inf Inf]; % Physical acceleration limits
 
 excludedIntervals_s = zeros(0,2);     % EDIT if needed: [badStart badEnd; ...]
 resetTimes_s = [];                   % EDIT: known cumulative reset/jump times
-% Exclude complete bad/transient intervals, not just clipped peaks. Prefer a
-% window wholly before saturation. Never substitute zero for an invalid axis.
+% Exclude only intervals you do not want analyzed (or cannot decode).
+% Do not exclude the high/low switching you are trying to characterize.
 makePlots = true;
+histogramBins = 50;                  % EDIT: number of bins; full data range retained
+includeFlaggedInHistograms = true;   % Keep finite rail-level readings to reveal clusters
+% Flagged readings show the RECORDED values, not true acceleration beyond a rail.
 
 %% 2. Validate data/configuration without deleting rows or changing timestamps
 assert(isnumeric(X) && isnumeric(Y) && isnumeric(Z) && isnumeric(time_s) && ...
@@ -75,22 +79,21 @@ assert(size(excludedIntervals_s,2)==2 && ...
     'excludedIntervals_s must have finite [start end] rows, or be zeros(0,2).');
 assert(isnumeric(resetTimes_s) && all(isfinite(resetTimes_s(:))), ...
     'resetTimes_s must contain finite numeric times, or be empty.');
+validateattributes(histogramBins,{'numeric'},{'scalar','integer','positive','finite'});
 badRaw = any(~isfinite(raw) | raw<=rawLimits(:,1)' | raw>=rawLimits(:,2)',2);
 
-%% 3. Convert/reconstruct acceleration in m/s^2 BEFORE estimating bias
+%% 3. Convert/reconstruct acceleration in m/s^2, preserving every observed level
 switch inputMode
     case 'instantaneous_ft_s2'
         a_sensor_ms2 = raw*0.3048;   % Exact international-foot conversion
         tA = t; leftTime = t; rightTime = t;
-        bad = badRaw; weights = ones(size(t));
+        bad = badRaw;
     case {'sample_sum_cm_s2','integral_cm_s'}
         leftTime = t(1:end-1); rightTime = t(2:end); tA = rightTime;
         a_sensor_ms2 = diff(raw,1,1)*0.01;
         bad = badRaw(1:end-1) | badRaw(2:end);
-        weights = ones(size(tA));
         if strcmp(inputMode,'integral_cm_s')
-            weights = diff(t);      % Duration weights for interval means
-            a_sensor_ms2 = a_sensor_ms2./weights;
+            a_sensor_ms2 = a_sensor_ms2./diff(t);
         end
     otherwise
         error('Unknown inputMode. Use a documented mode from Section 1.');
@@ -116,10 +119,11 @@ use = selected & ~excluded & ~bad;   % ONE COMMON set of valid XYZ rows
 rejected = selected & (excluded | bad);
 g0 = 9.80665;                       % Standard gravity [m/s^2]
 residual_sensor_ug = (a_sensor_ms2-baseline_sensor_ms2)*(1e6/g0);
+% No mean subtraction: a recorded zero/high pattern keeps its original offset.
 
 %% 4. Review the window and invalid rows; do not infer saturation from sign
 if makePlots
-    fig = figure('Name','Accelerometer bias window - sensor frame');
+    fig = figure('Name','Accelerometer error window - sensor frame');
     tiles = tiledlayout(fig,3,1,'TileSpacing','compact','Padding','compact');
     names = {'X','Y','Z'};
     for j = 1:3
@@ -131,30 +135,66 @@ if makePlots
         xline(ax,window_s(1),'k:','HandleVisibility','off');
         xline(ax,window_s(2),'k:','HandleVisibility','off'); grid(ax,'on');
         ylabel(ax,[names{j} ' residual [\mug]']);
-        legend(ax,[h1 h2 h3 h4],{'Recorded minus baseline','Used XYZ rows', ...
-            'Rejected/excluded XYZ rows','Zero error'},'Location','best');
+        legend(ax,[h1 h2 h3 h4],{'Recorded minus baseline','Within-bounds XYZ rows', ...
+            'Flagged/excluded XYZ rows','Zero error'},'Location','best');
     end
     xlabel(ax,'Time [s]');
-    title(tiles,'Sensor-frame acceleration error: select a settled, unclipped window');
+    title(tiles,'Observed sensor-frame error: selected window and flagged/excluded rows');
 end
 
-% Fail rather than silently estimate from a partially clipped distribution.
-assert(~any(selected & ~excluded & bad), ...
-    ['Window contains saturated/nonfinite XYZ rows. Choose a clean window or ' ...
-     'explicitly exclude complete bad intervals. Clipped values cannot recover bias.']);
-assert(nnz(use)>=2, 'Fewer than two common valid XYZ samples remain.');
+%% 5. NEW: retain full error histories, then histogram sensor AND PLT XYZ
+% A single mean/RMS cannot retain the observed switching sequence.
+histUse = selected & ~excluded & all(isfinite(residual_sensor_ug),2);
+if ~includeFlaggedInHistograms
+    histUse = histUse & ~bad;
+end
+assert(nnz(histUse)>=2, 'Fewer than two common finite XYZ samples remain.');
+error_sensor_ug = residual_sensor_ug(histUse,:);
+error_PLT_ug = error_sensor_ug*R';     % Rotate synchronized SAMPLES, not histograms
+limitFlag = bad(histUse);
+Results_sensor = table(tA(histUse),error_sensor_ug(:,1),error_sensor_ug(:,2), ...
+    error_sensor_ug(:,3),limitFlag, ...
+    'VariableNames',{'Time_s','ErrorX_ug','ErrorY_ug','ErrorZ_ug','LimitFlag'});
+Results_PLT = table(tA(histUse),error_PLT_ug(:,1),error_PLT_ug(:,2), ...
+    error_PLT_ug(:,3),limitFlag, ...
+    'VariableNames',{'Time_s','ErrorX_ug','ErrorY_ug','ErrorZ_ug','LimitFlag'});
+% Original timestamps, including any gaps, are retained for later modeling.
+% LimitFlag means at least one source axis reached a configured bound.
 
-%% 5. Bias in the sensor frame -> PLT frame -> micro-g
-mean_sensor_ms2 = sum(a_sensor_ms2(use,:).*weights(use),1)/sum(weights(use));
-bias_sensor_ms2 = mean_sensor_ms2-baseline_sensor_ms2;
-bias_sensor_ug = bias_sensor_ms2*(1e6/g0);
-bias_PLT_ug = (bias_sensor_ms2*R')*(1e6/g0);
-% Signed additive-error convention: measurement = truth + bias.
-% A simulation correction parameter would instead use the negative of this bias.
-Results_PLT = table(bias_PLT_ug(1),bias_PLT_ug(2),bias_PLT_ug(3), ...
-    'VariableNames',{'BiasX_ug','BiasY_ug','BiasZ_ug'});
-disp(Results_PLT);
-fprintf('Used %d common XYZ rows in [%.6g, %.6g] s; excluded %d selected rows.\n', ...
-    nnz(use),min(tA(use)),max(tA(use)),nnz(rejected));
-% Optional export for your sim:
-% writetable(Results_PLT,'IMU_Bias_PLT_ug.csv');
+names = {'X','Y','Z'};
+HistogramResults = struct([]);
+if makePlots
+    figHist = figure('Name','Accelerometer error distributions - mean retained', ...
+        'Position',[100 100 1100 850]);
+    histTiles = tiledlayout(figHist,3,2,'TileSpacing','compact','Padding','compact');
+    title(histTiles,'Selected interval: known baseline removed; measured mean retained');
+end
+for j = 1:3
+    % Shared equal-width edges make sensor/PLT distributions comparable per row.
+    [~,edges] = histcounts([error_sensor_ug(:,j); error_PLT_ug(:,j)],histogramBins);
+    countsSensor = histcounts(error_sensor_ug(:,j),edges);
+    countsPLT = histcounts(error_PLT_ug(:,j),edges);
+    HistogramResults(j).Axis = names{j};
+    HistogramResults(j).BinEdges_ug = edges;
+    HistogramResults(j).SensorCounts = countsSensor;
+    HistogramResults(j).PLTCounts = countsPLT;
+    HistogramResults(j).SensorProbability = countsSensor/sum(countsSensor);
+    HistogramResults(j).PLTProbability = countsPLT/sum(countsPLT);
+    if makePlots
+        axS = nexttile(histTiles,2*j-1);
+        histogram(axS,error_sensor_ug(:,j),edges,'Normalization','probability');
+        grid(axS,'on'); title(axS,['Sensor ' names{j}]);
+        xlabel(axS,'Acceleration error [\mug]'); ylabel(axS,'Fraction of samples');
+        axP = nexttile(histTiles,2*j);
+        histogram(axP,error_PLT_ug(:,j),edges,'Normalization','probability');
+        grid(axP,'on'); title(axP,['PLT ' names{j}]);
+        xlabel(axP,'Acceleration error [\mug]'); ylabel(axP,'Fraction of samples');
+    end
+end
+% Probabilities are fractions of SAMPLES. They approximate fractions of time
+% only for uniform sampling. No fitted distribution or anomaly threshold is imposed.
+fprintf('Retained %d XYZ samples in [%.6g, %.6g] s; %d retained rows have limit flags.\n', ...
+    nnz(histUse),min(tA(histUse)),max(tA(histUse)),nnz(limitFlag));
+fprintf('Results_PLT contains the full error history in micro-g, not a constant bias.\n');
+% Optional export for later model identification (not a three-bias sim input):
+% writetable(Results_PLT,'IMU_Error_History_PLT_ug.csv');
