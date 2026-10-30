@@ -1,0 +1,22 @@
+Why Spike model sucks:
+It can be that simple for a rough approximation—but matching your measured behavior requires more than three Gaussians.
+- Spike heights: a Gaussian is unbounded and may misrepresent positive/negative asymmetry and rare extremes.
+- Spike spacing: a Gaussian can produce negative intervals and may poorly represent clustering or irregular gaps.
+- Pulse shape and duration: those distributions don’t specify whether a spike lasts one sample or twenty. That changes the histogram, PSD, and accumulated velocity error.
+- Finite-record consistency: random draws can omit rare large spikes or produce too few events, even when their average statistics are correct.
+The concise explanation is: “Three Gaussians give us a simple starting model. The extra complexity comes from enforcing measured bounds, timing, pulse durations, and reliable representation of rare events.”
+
+Compared with your tone loop, the **spike model** needs:
+
+- **Persistent state:** remember whether a pulse is active, its height, remaining duration, and time until the next pulse.
+- **Event scheduling:** decide when pulses begin. Your sine waves already define their value at every time.
+- **Pulse generation:** choose the sign, amplitude, duration, and shape of each event.
+- **Additional random draws:** scheduling and pulse selection require fresh draws beyond the three Gaussian values currently generated per call.
+- **Bound handling:** keep background and pulse values within the fitted limits.
+- **Block planning:** your larger implementation preserves specific spike counts and occupied samples in each amplitude bin. This requires allocation, shuffling, and stored schedules.
+- **Initialization and update control:** reset each run and advance once per sensor tick; repeated calls at the same tick reuse the output.
+- **Measurement adaptation:** convert acceleration error into delta velocity using `dt`, apply your existing rotation, and replace the corresponding old error terms.
+
+**Most of the extra code comes from enforcing the detailed matching requirements.** A basic random-pulse generator could be much shorter. Exact counts, bounded correlated background, and controlled tail representation are what made the original file grow.
+
+**A Fourier reconstruction would mainly replace your tone arrays and loop; it would still need the correct activation time and delta-velocity conversion.**
